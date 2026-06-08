@@ -177,16 +177,22 @@ jobs:
           set -e
           
           # Clean existing installations
-          rm -rf ./KernelSU ./drivers/kernelsu
+          rm -rf ./KernelSU ./ReSukiSU ./drivers/kernelsu
           
           echo "📦 Installing ReSukiSU..."
           curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash -s main
           
-          if [ ! -d "KernelSU" ]; then
-            echo "❌ ERROR: ReSukiSU directory not found after installation!"
+          # Auto-detect which directory was created
+          if [ -d "KernelSU" ]; then
+            RESUKI_DIR="KernelSU"
+          elif [ -d "ReSukiSU" ]; then
+            RESUKI_DIR="ReSukiSU"
+          else
+            echo "❌ ERROR: ReSukiSU directory not found! Listing current dir:"
+            ls -la
             exit 1
           fi
-          echo "✔ ReSukiSU installed successfully"
+          echo "✔ ReSukiSU installed successfully in: $RESUKI_DIR"
           
           echo "📦 Cloning SUSFS4KSU..."
           git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android13-5.15
@@ -237,20 +243,21 @@ jobs:
             echo "⚠️ susfs_def.h not found, might not be needed"
           fi
           
-          # Inject SUSFS integration into KernelSU
+          # Inject SUSFS integration into ReSukiSU
           echo "📦 Integrating SUSFS with ReSukiSU..."
           
           if [ -d "susfs4ksu/kernel_patches/KernelSU/kernel" ]; then
-            cp -rf susfs4ksu/kernel_patches/KernelSU/kernel/* KernelSU/kernel/ || true
-            echo "✔ Copied SUSFS integration files to KernelSU/kernel/"
+            cp -rf susfs4ksu/kernel_patches/KernelSU/kernel/* $RESUKI_DIR/kernel/ || true
+            echo "✔ Copied SUSFS integration files to $RESUKI_DIR/kernel/"
           fi
           
           # Apply KSU SUSFS patch with better error handling
           KSU_PATCH="susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch"
-          KSU_C_FILE="KernelSU/kernel/ksu.c"
+          KSU_C_FILE="$RESUKI_DIR/kernel/ksu.c"
           
           if [ ! -f "$KSU_C_FILE" ]; then
-            echo "❌ ERROR: $KSU_C_FILE not found!"
+            echo "❌ ERROR: $KSU_C_FILE not found! Listing $RESUKI_DIR/kernel/:"
+            ls -la $RESUKI_DIR/kernel/
             exit 1
           fi
           
@@ -263,7 +270,7 @@ jobs:
             # Try applying patch first
             PATCH_SUCCESS=0
             if [ -f "$KSU_PATCH" ]; then
-              cd KernelSU
+              cd $RESUKI_DIR
               if patch -p1 --forward --dry-run < "../$KSU_PATCH" >/dev/null 2>&1; then
                 patch -p1 < "../$KSU_PATCH" && PATCH_SUCCESS=1
                 echo "✔ Applied KSU SUSFS patch successfully"
@@ -326,7 +333,7 @@ jobs:
           
           # Ensure drivers/kernelsu symlink exists
           if [ ! -L "drivers/kernelsu" ] && [ ! -d "drivers/kernelsu" ]; then
-            ln -sf ../KernelSU drivers/kernelsu
+            ln -sf ../$RESUKI_DIR drivers/kernelsu
             echo "✔ Created drivers/kernelsu symlink"
           fi
           
