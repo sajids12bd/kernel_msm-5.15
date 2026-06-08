@@ -1,14 +1,14 @@
 name: "Build YASK"
 
-on:
-  workflow_dispatch:
-  schedule:
-    - cron: "0 0 * * 0"
-
 env:
   OUT_DIR: "out"
   KERNEL_VERSION: "5.15"
   ANDROID_VERSION: "13"
+
+on:
+  schedule:
+    - cron: '0 0 * * 0'
+  workflow_dispatch:
 
 jobs:
   build-kernels:
@@ -18,25 +18,17 @@ jobs:
       fail-fast: false
       matrix:
         kernel:
-          - name: "GKI-KSU"
-            dir: "gki_ksu"
+          - name: "GKI"
+            dir: "common_gki"
             repo_name: "common"
             repo_url: "https://android.googlesource.com/kernel/common"
             branch: "android13-5.15-lts"
             defconfig: "gki_defconfig"
-            local_version: "-YASK-KSU"
+            local_version: "-YASK-GKI"
             output_name: "Image.gki.ksu"
             enable_ksu: true
-
-          - name: "GKI-NO-KSU"
-            dir: "gki_noksu"
-            repo_name: "common"
-            repo_url: "https://android.googlesource.com/kernel/common"
-            branch: "android13-5.15-lts"
-            defconfig: "gki_defconfig"
-            local_version: "-YASK-NO"
-            output_name: "Image.gki.noksu"
-            enable_ksu: false
+            extra_patches:
+              - "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-gki-fixup.patch"
 
     env:
       KERNEL_LOC_DIR: ${{ matrix.kernel.dir }}
@@ -50,121 +42,82 @@ jobs:
 
     steps:
 
-      - name: Setup system
-        run: |
-          sudo apt update -y
-          sudo apt install -y git curl wget jq build-essential aria2 repo patch
-
-      - name: Setup swap
-        uses: pierotofy/set-swap-space@master
-        with:
-          swap-size-gb: 10
-
-      - name: Clone kernel source
+      - name: Setup workspace
         run: |
           mkdir -p $KERNEL_LOC_DIR
-          cd $KERNEL_LOC_DIR
-          git clone --depth=1 --branch $KERNEL_BRANCH $KERNEL_REPO $KERNEL_NAME
+          sudo apt-get update -y
+          sudo apt-get install -y git curl wget zip build-essential bc bison flex
 
-      - name: Install clang toolchain
+      - name: Clone kernel
         run: |
-          mkdir -p prebuilts/clang
-          aria2c -x 16 -s 16 -o clang.tar.gz https://github.com/topnotchfreaks/clang/releases/download/v1.0.0/clang-r547379.tar.gz
-          mkdir -p prebuilts/clang/host/linux-x86/clang-r547379
-          tar -xzf clang.tar.gz -C prebuilts/clang/host/linux-x86/clang-r547379
-          rm -f clang.tar.gz
+          git clone --depth=1 --branch $KERNEL_BRANCH $KERNEL_REPO $KERNEL_LOC_DIR/$KERNEL_NAME
 
-      - name: Patch kernel config
-        run: |
-          cd $KERNEL_LOC_DIR/$KERNEL_NAME
-
-          echo "CONFIG_LOCALVERSION=\"$LOCAL_VERSION-$(date +%Y%m%d)\"" >> arch/arm64/configs/$DEFCONFIG_NAME
-          echo "CONFIG_LOCALVERSION_AUTO=n" >> arch/arm64/configs/$DEFCONFIG_NAME
-
-      - name: Setup ReSukiSU + SUSFS
-        if: matrix.kernel.enable_ksu == true
+      # =========================
+      # BBG + ReSukiSU + SUSFS FIXED BLOCK
+      # =========================
+      - name: Setup ReSukiSU + SUSFS + BBG
+        working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
           set -e
-          cd $KERNEL_LOC_DIR/$KERNEL_NAME
 
-          echo "Cleaning old KSU..."
-          rm -rf KernelSU ReSukiSU Wild_KSU drivers/kernelsu
+          echo "Removing old KSU variants..."
+          rm -rf KernelSU Wild_KSU ReSukiSU drivers/kernelsu
 
           echo "Installing ReSukiSU..."
           curl -LSs https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh | bash -s main
 
           if [ -d "ReSukiSU" ]; then
             KSU_DIR="ReSukiSU"
-          elif [ -d "KernelSU" ]; then
-            KSU_DIR="KernelSU"
           else
-            echo "❌ ReSukiSU install failed"
+            echo "ReSukiSU install failed"
             exit 1
           fi
 
-          echo "Using: $KSU_DIR"
+          echo "Cloning SUSFS..."
+          git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android13-5.15
 
-          echo "Installing SUSFS..."
-          git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android13-5.15 || true
-
-          if [ -d "susfs4ksu" ]; then
-            patch -p1 < susfs4ksu/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch || true
-          fi
+          echo "Applying SUSFS patch..."
+          patch -p1 < susfs4ksu/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch || true
 
           mkdir -p fs include/linux
 
-          cp -f susfs4ksu/kernel_patches/fs/susfs.c fs/ || true
+          cp -f susfs4ksu/kernel_patches/fs/susfs.c fs/
           cp -f susfs4ksu/kernel_patches/include/linux/susfs.h include/linux/ || true
 
-          if [ -f "$KSU_DIR/kernel/ksu.c" ]; then
-            sed -i '/ksu_core_init();/a \tsusfs_init();' $KSU_DIR/kernel/ksu.c || true
+          cp -rf susfs4ksu/kernel_patches/KernelSU/kernel/* $KSU_DIR/kernel/ || true
+
+          KSU_C="$KSU_DIR/kernel/ksu.c"
+
+          if ! grep -q "susfs_init" "$KSU_C"; then
+            sed -i '/ksu_core_init();/a \tsusfs_init();' "$KSU_C" || true
           fi
 
           ln -sf ../$KSU_DIR drivers/kernelsu || true
 
-          cat >> arch/arm64/configs/$DEFCONFIG_NAME <<EOF
+          echo "Adding BBG..."
+          wget -O- https://github.com/vc-teahouse/Baseband-guard/raw/main/setup.sh | bash || true
+
+          echo "CONFIG_BBG=y" >> arch/arm64/configs/$DEFCONFIG_NAME
+
+          cat >> arch/arm64/configs/$DEFCONFIG_NAME << 'EOF'
 CONFIG_KSU=y
 CONFIG_OVERLAY_FS=y
 CONFIG_KSU_SUSFS=y
+CONFIG_KSU_SUSFS_SUS_PATH=y
+CONFIG_KSU_SUSFS_SUS_MOUNT=y
 CONFIG_KSU_SUSFS_SUS_SU=y
 EOF
 
+          echo "ReSukiSU + SUSFS + BBG DONE"
+
       - name: Build kernel
         run: |
-          cd $KERNEL_LOC_DIR/$KERNEL_NAME
-
-          LTO=full \
-          BUILD_CONFIG=build.config.gki.aarch64 \
-          bash build.sh -j$(nproc)
-
-      - name: Copy Image
-        run: |
-          cp out/dist/Image Image-${OUTPUT_NAME}
+          mkdir -p out
+          export LTO=full
+          build/build.sh -j$(nproc)
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.kernel.name }}
-          path: Image-${{ matrix.kernel.output_name }}
-
-  package:
-    runs-on: ubuntu-latest
-    needs: build-kernels
-
-    steps:
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-
-      - name: Create zip
-        run: |
-          zip -r kernel.zip artifacts
-
-      - name: Create release
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: "YASK-BUILD"
-          files: kernel.zip
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: kernel
+          path: out/
