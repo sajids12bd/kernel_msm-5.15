@@ -6,9 +6,9 @@ env:
   ANDROID_VERSION: "13"
 
 on:
-  schedule:
-    - cron: '0 0 * * 0'
   workflow_dispatch:
+  schedule:
+    - cron: "0 0 * * 0"
 
 jobs:
   build-kernels:
@@ -18,28 +18,25 @@ jobs:
       fail-fast: false
       matrix:
         kernel:
-          - name: "GKI"
-            dir: "common_gki"
+          - name: "GKI-KSU"
+            dir: "gki_ksu"
             repo_name: "common"
             repo_url: "https://android.googlesource.com/kernel/common"
             branch: "android13-5.15-lts"
             defconfig: "gki_defconfig"
-            local_version: "-YASK-GKI"
+            local_version: "-YASK-KSU"
             output_name: "Image.gki.ksu"
             enable_ksu: true
-            extra_patches:
-              - "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-gki-fixup.patch"
 
-          - name: "GKI-NoKSU"
-            dir: "common_gki_noksu"
+          - name: "GKI-NO-KSU"
+            dir: "gki_noksu"
             repo_name: "common"
             repo_url: "https://android.googlesource.com/kernel/common"
             branch: "android13-5.15-lts"
             defconfig: "gki_defconfig"
-            local_version: "-YAS-GKI"
+            local_version: "-YASK-NO"
             output_name: "Image.gki.noksu"
             enable_ksu: false
-            extra_patches: []
 
     env:
       KERNEL_LOC_DIR: ${{ matrix.kernel.dir }}
@@ -53,11 +50,10 @@ jobs:
 
     steps:
 
-      - name: Setup workspace
+      - name: Setup system
         run: |
-          mkdir -p $KERNEL_LOC_DIR
-          sudo apt-get update -y
-          sudo apt-get install -y git curl wget aria2 repo jq rsync
+          sudo apt update -y
+          sudo apt install -y git curl wget jq build-essential aria2 repo
 
       - name: Setup swap
         uses: pierotofy/set-swap-space@master
@@ -66,10 +62,11 @@ jobs:
 
       - name: Clone kernel
         run: |
+          mkdir -p $KERNEL_LOC_DIR
           cd $KERNEL_LOC_DIR
           git clone --depth=1 --branch $KERNEL_BRANCH $KERNEL_REPO $KERNEL_NAME
 
-      - name: Install toolchain
+      - name: Install clang toolchain
         run: |
           mkdir -p prebuilts/clang
           aria2c -x 16 -s 16 -o clang.tar.gz https://github.com/topnotchfreaks/clang/releases/download/v1.0.0/clang-r547379.tar.gz
@@ -77,31 +74,21 @@ jobs:
           tar -xzf clang.tar.gz -C prebuilts/clang/host/linux-x86/clang-r547379
           rm -f clang.tar.gz
 
-      - name: Apply patches
+      - name: Patch kernel config
         run: |
           cd $KERNEL_LOC_DIR/$KERNEL_NAME
 
-          CONFIG_FILE="arch/arm64/configs/$DEFCONFIG_NAME"
-          echo "CONFIG_LOCALVERSION=\"$LOCAL_VERSION-$(date +%Y-%m-%d)\"" >> $CONFIG_FILE
-          echo "CONFIG_LOCALVERSION_AUTO=n" >> $CONFIG_FILE
+          echo "CONFIG_LOCALVERSION=\"$LOCAL_VERSION-$(date +%Y%m%d)\"" >> arch/arm64/configs/$DEFCONFIG_NAME
+          echo "CONFIG_LOCALVERSION_AUTO=n" >> arch/arm64/configs/$DEFCONFIG_NAME
 
-          for p in ${{ join(matrix.kernel.extra_patches, ' ') }}; do
-            echo "Applying $p"
-            curl -L -o patch.patch $p || continue
-            patch -p1 < patch.patch || true
-          done
-
-      # =========================
-      # RE-SUKISU / KSU SECTION
-      # =========================
-      - name: Setup ReSukiSU (optional)
+      - name: Setup ReSukiSU + SUSFS
         if: matrix.kernel.enable_ksu == true
         run: |
           set -e
-
           cd $KERNEL_LOC_DIR/$KERNEL_NAME
 
-          rm -rf KernelSU Wild_KSU ReSukiSU drivers/kernelsu
+          echo "Cleaning old KSU..."
+          rm -rf KernelSU ReSukiSU Wild_KSU drivers/kernelsu
 
           echo "Installing ReSukiSU..."
           curl -LSs https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh | bash -s main
@@ -115,8 +102,9 @@ jobs:
             exit 1
           fi
 
-          echo "Using $KSU_DIR"
+          echo "Using: $KSU_DIR"
 
+          echo "Installing SUSFS..."
           git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android13-5.15 || true
 
           if [ -d "susfs4ksu" ]; then
@@ -151,13 +139,13 @@ EOF
 
       - name: Copy Image
         run: |
-          cp out/dist/Image Image_${OUTPUT_NAME}
+          cp out/dist/Image Image-${OUTPUT_NAME}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.kernel.name }}
-          path: Image_${{ matrix.kernel.output_name }}
+          path: Image-${{ matrix.kernel.output_name }}
 
   package:
     runs-on: ubuntu-latest
@@ -168,15 +156,14 @@ EOF
         with:
           path: artifacts
 
-      - name: Package
+      - name: Zip package
         run: |
-          mkdir AnyKernel3
-          cp -r artifacts/* AnyKernel3/
-          zip -r kernel.zip AnyKernel3
+          zip -r kernel.zip artifacts
 
-      - name: Release
+      - name: Upload release
         uses: softprops/action-gh-release@v1
         with:
+          tag_name: "YASK-BUILD"
           files: kernel.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
