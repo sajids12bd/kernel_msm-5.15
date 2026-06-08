@@ -1,14 +1,14 @@
 name: "Build YASK"
 
-env:
-  OUT_DIR: "out"
-  KERNEL_VERSION: "5.15"
-  ANDROID_VERSION: "13"
-
 on:
   workflow_dispatch:
   schedule:
     - cron: "0 0 * * 0"
+
+env:
+  OUT_DIR: "out"
+  KERNEL_VERSION: "5.15"
+  ANDROID_VERSION: "13"
 
 jobs:
   build-kernels:
@@ -53,14 +53,14 @@ jobs:
       - name: Setup system
         run: |
           sudo apt update -y
-          sudo apt install -y git curl wget jq build-essential aria2 repo
+          sudo apt install -y git curl wget jq build-essential aria2 repo patch
 
       - name: Setup swap
         uses: pierotofy/set-swap-space@master
         with:
           swap-size-gb: 10
 
-      - name: Clone kernel
+      - name: Clone kernel source
         run: |
           mkdir -p $KERNEL_LOC_DIR
           cd $KERNEL_LOC_DIR
@@ -98,7 +98,7 @@ jobs:
           elif [ -d "KernelSU" ]; then
             KSU_DIR="KernelSU"
           else
-            echo "KSU install failed"
+            echo "❌ ReSukiSU install failed"
             exit 1
           fi
 
@@ -152,15 +152,16 @@ EOF
     needs: build-kernels
 
     steps:
-      - uses: actions/download-artifact@v4
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
         with:
           path: artifacts
 
-      - name: Zip package
+      - name: Create zip
         run: |
           zip -r kernel.zip artifacts
 
-      - name: Upload release
+      - name: Create release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: "YASK-BUILD"
