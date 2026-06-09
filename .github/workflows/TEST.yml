@@ -1,0 +1,159 @@
+name: Test Build - SUSFS + ReSukiSU (MSM 5.15)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test-build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+
+    steps:
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y \
+            git curl wget make bc bison flex \
+            libssl-dev libelf-dev python3 \
+            zip unzip cpio kmod
+
+      - name: Setup Topnotchfreaks Clang
+        run: |
+          mkdir -p $HOME/clang
+          cd $HOME/clang
+          CLANG_URL=$(curl -s https://api.github.com/repos/topnotchfreaks/clang/releases/latest \
+            | grep "browser_download_url" \
+            | grep ".tar.gz" \
+            | head -1 \
+            | cut -d '"' -f 4)
+          echo "Downloading: $CLANG_URL"
+          wget -q "$CLANG_URL" -O clang.tar.gz
+          tar -xzf clang.tar.gz
+          rm clang.tar.gz
+          echo "CLANG_PATH=$HOME/clang/$(ls $HOME/clang | head -1)" >> $GITHUB_ENV
+
+      - name: Clone Kernel Source
+        run: |
+          git clone --depth=1 \
+            --branch kernel.lnx.5.15.r1-rel \
+            https://git.codelinaro.org/clo/la/kernel/msm-5.15.git \
+            kernel
+          echo "✅ Kernel source cloned"
+
+      - name: Integrate ReSukiSU
+        run: |
+          cd kernel
+          curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash -s main
+          echo "✅ ReSukiSU integrated"
+
+      - name: Apply SUSFS Patch
+        run: |
+          cd kernel
+          # Clone SUSFS branch
+          git clone --depth=1 \
+            --branch gki-android13-5.15 \
+            https://gitlab.com/simonpunk/susfs4ksu.git \
+            susfs4ksu
+
+          # Copy SUSFS files into kernel
+          cp susfs4ksu/kernel_patches/fs/susfs.c fs/
+          cp susfs4ksu/kernel_patches/include/linux/susfs.h include/linux/
+          cp susfs4ksu/kernel_patches/include/linux/susfs_def.h include/linux/
+
+          # Apply the main SUSFS patch
+          PATCH_FILE=$(ls susfs4ksu/kernel_patches/*.patch 2>/dev/null | head -1)
+          if [ -n "$PATCH_FILE" ]; then
+            patch -p1 < "$PATCH_FILE" && echo "✅ SUSFS patch applied" || echo "⚠️ Patch had issues, check output"
+          else
+            echo "⚠️ No .patch file found, skipping patch step"
+          fi
+
+          rm -rf susfs4ksu
+
+      - name: Configure Kernel
+        run: |
+          cd kernel
+          export PATH="${{ env.CLANG_PATH }}/bin:$PATH"
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+          export CC=clang
+          export CLANG_TRIPLE=aarch64-linux-gnu-
+
+          make O=out ARCH=arm64 CC=clang \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            gki_defconfig
+          echo "✅ Defconfig applied"
+
+      - name: Enable KSU + SUSFS Configs
+        run: |
+          cd kernel
+          CONFIG_FILE="out/.config"
+
+          cat >> "$CONFIG_FILE" << 'EOF'
+CONFIG_KSU=y
+CONFIG_KPROBES=y
+CONFIG_HAVE_KPROBES=y
+CONFIG_KPROBE_EVENTS=y
+CONFIG_OVERLAY_FS=y
+CONFIG_KSU_SUSFS=y
+CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
+CONFIG_KSU_SUSFS_SUS_PATH=y
+CONFIG_KSU_SUSFS_SUS_MOUNT=y
+CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y
+CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y
+CONFIG_KSU_SUSFS_SUS_KSTAT=y
+CONFIG_KSU_SUSFS_TRY_UMOUNT=y
+CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y
+CONFIG_KSU_SUSFS_SPOOF_UNAME=y
+CONFIG_KSU_SUSFS_ENABLE_LOG=y
+CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
+CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
+CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
+CONFIG_KSU_SUSFS_SUS_SU=y
+EOF
+
+          # Run olddefconfig to resolve any conflicts/new symbols
+          export PATH="${{ env.CLANG_PATH }}/bin:$PATH"
+          make O=out ARCH=arm64 CC=clang \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            olddefconfig
+          echo "✅ KSU + SUSFS configs applied"
+
+      - name: Build Kernel
+        run: |
+          cd kernel
+          export PATH="${{ env.CLANG_PATH }}/bin:$PATH"
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+          export CC=clang
+          export CLANG_TRIPLE=aarch64-linux-gnu-
+
+          make -j$(nproc) O=out ARCH=arm64 CC=clang \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            2>&1 | tee build.log
+
+          if [ -f out/arch/arm64/boot/Image ]; then
+            echo "✅ BUILD SUCCESSFUL — Image found"
+          else
+            echo "❌ BUILD FAILED — Image not found"
+            exit 1
+          fi
+
+      - name: Upload Build Log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: kernel/build.log
+
+      - name: Upload Kernel Image
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-image
+          path: kernel/out/arch/arm64/boot/Image
