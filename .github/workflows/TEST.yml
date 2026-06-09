@@ -15,7 +15,11 @@ jobs:
           sudo apt-get install -y \
             git curl wget make bc bison flex \
             libssl-dev libelf-dev python3 \
-            zip unzip cpio kmod
+            zip unzip cpio kmod \
+            binutils-aarch64-linux-gnu \
+            gcc-aarch64-linux-gnu \
+            binutils-arm-linux-gnueabi \
+            gcc-arm-linux-gnueabi
 
       - name: Setup Topnotchfreaks Clang
         run: |
