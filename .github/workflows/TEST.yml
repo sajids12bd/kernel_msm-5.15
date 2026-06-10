@@ -140,105 +140,82 @@ jobs:
           echo "📦 Installing SukiSU-Ultra..."
           curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s main
 
-          # SukiSU-Ultra setup.sh clones as 'KernelSU', rename it
           if [ -d "KernelSU" ] && [ ! -d "SukiSU-Ultra" ]; then
             mv KernelSU SukiSU-Ultra
             echo "✔ Renamed KernelSU → SukiSU-Ultra"
           fi
 
           [ -d "SukiSU-Ultra" ] || { echo "❌ SukiSU-Ultra not found!"; exit 1; }
-          echo "✔ SukiSU-Ultra installed"
 
           echo "📦 Cloning SUSFS4KSU..."
           git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android13-5.15
-          [ -d "susfs4ksu" ] || { echo "❌ SUSFS clone failed!"; exit 1; }
 
-          # Apply SUSFS kernel patch
-          echo "🔧 Applying SUSFS kernel patch..."
           SUSFS_PATCH="susfs4ksu/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch"
           if [ -f "$SUSFS_PATCH" ]; then
-            patch -p1 --forward < "$SUSFS_PATCH" && echo "✅ SUSFS kernel patch applied" || echo "⚠️ Patch had issues, continuing..."
-          else
-            echo "⚠️ SUSFS patch not found: $SUSFS_PATCH"
+            patch -p1 --forward < "$SUSFS_PATCH" || true
           fi
-      
-          # Copy SUSFS source files
-          echo "📄 Installing SUSFS source files..."
+
           mkdir -p fs include/linux
-      
-          cp -f susfs4ksu/kernel_patches/fs/susfs.c fs/susfs.c \
-            && echo "✔ Copied fs/susfs.c" \
-            || { echo "❌ fs/susfs.c missing!"; exit 1; }
-      
-          cp -f susfs4ksu/kernel_patches/include/linux/susfs.h include/linux/susfs.h \
-            && echo "✔ Copied include/linux/susfs.h" \
-            || { echo "❌ susfs.h missing!"; exit 1; }
-      
+
+          cp -f susfs4ksu/kernel_patches/fs/susfs.c fs/susfs.c
+          cp -f susfs4ksu/kernel_patches/include/linux/susfs.h include/linux/susfs.h
+
           [ -f "susfs4ksu/kernel_patches/include/linux/susfs_def.h" ] && \
-            cp -f susfs4ksu/kernel_patches/include/linux/susfs_def.h include/linux/susfs_def.h && \
-            echo "✔ Copied susfs_def.h" || echo "⚠️ susfs_def.h not found, skipping"
-      
-          # SukiSU-Ultra uses kernel/core/init.c — NOT ksu.c
-          echo "📦 Integrating SUSFS into SukiSU-Ultra..."
-      
-          # Copy SUSFS KSU integration files if available
+            cp -f susfs4ksu/kernel_patches/include/linux/susfs_def.h include/linux/susfs_def.h
+
           if [ -d "susfs4ksu/kernel_patches/KernelSU/kernel" ]; then
             cp -rf susfs4ksu/kernel_patches/KernelSU/kernel/* SukiSU-Ultra/kernel/ || true
-            echo "✔ Copied SUSFS integration files to SukiSU-Ultra/kernel/"
           fi
-      
-          # Apply KSU SUSFS patch against SukiSU-Ultra
+
           KSU_PATCH="susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch"
           if [ -f "$KSU_PATCH" ]; then
-            cd SukiSU-Ultra
-            patch -p1 --forward < "../$KSU_PATCH" && echo "✔ KSU SUSFS patch applied" || echo "⚠️ KSU patch had issues, continuing..."
-            cd ..
+            (
+              cd SukiSU-Ultra
+              patch -p1 --forward < "../$KSU_PATCH" || true
+            )
           fi
-      
-          # SukiSU-Ultra already has built-in SUSFS support — verify init.c exists
+
           INIT_C="SukiSU-Ultra/kernel/core/init.c"
-          if [ ! -f "$INIT_C" ]; then
-            echo "❌ ERROR: SukiSU-Ultra kernel/core/init.c not found!"
-            find SukiSU-Ultra/kernel -name "*.c" | head -20
+          [ -f "$INIT_C" ] || {
+            echo "❌ ERROR: $INIT_C not found!"
             exit 1
-          fi
-          echo "✔ Found SukiSU-Ultra entry point: $INIT_C"
-      
-          # Ensure drivers/kernelsu symlink exists
+          }
+
           if [ ! -L "drivers/kernelsu" ] && [ ! -d "drivers/kernelsu" ]; then
             ln -sf "$(pwd)/SukiSU-Ultra/kernel" drivers/kernelsu
-            echo "✔ Created drivers/kernelsu symlink"
           fi
-      
-          # Add KSU and SUSFS configs
+
           CONFIG_FILE="arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
+
           cat >> "$CONFIG_FILE" << 'EOF'
-		CONFIG_KSU=y
-		CONFIG_KPROBES=y
-		CONFIG_HAVE_KPROBES=y
-		CONFIG_KPROBE_EVENTS=y
-		CONFIG_OVERLAY_FS=y
-		CONFIG_KSU_SUSFS=y
-		CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
-		CONFIG_KSU_SUSFS_SUS_PATH=y
-		CONFIG_KSU_SUSFS_SUS_MOUNT=y
-		CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y
-		CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y
-		CONFIG_KSU_SUSFS_SUS_KSTAT=y
-		CONFIG_KSU_SUSFS_TRY_UMOUNT=y
-		CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y
-		CONFIG_KSU_SUSFS_SPOOF_UNAME=y
-		CONFIG_KSU_SUSFS_ENABLE_LOG=y
-		CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
-		CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
-		CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
-		CONFIG_KSU_SUSFS_SUS_SU=y
-		EOF      
+          CONFIG_KSU=y
+          CONFIG_KPROBES=y
+          CONFIG_HAVE_KPROBES=y
+          CONFIG_KPROBE_EVENTS=y
+          CONFIG_OVERLAY_FS=y
+          CONFIG_KSU_SUSFS=y
+          CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
+          CONFIG_KSU_SUSFS_SUS_PATH=y
+          CONFIG_KSU_SUSFS_SUS_MOUNT=y
+          CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y
+          CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y
+          CONFIG_KSU_SUSFS_SUS_KSTAT=y
+          CONFIG_KSU_SUSFS_TRY_UMOUNT=y
+          CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y
+          CONFIG_KSU_SUSFS_SPOOF_UNAME=y
+          CONFIG_KSU_SUSFS_ENABLE_LOG=y
+          CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
+          CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
+          CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
+          CONFIG_KSU_SUSFS_SUS_SU=y
+          EOF
+
           echo "✔ KSU + SUSFS configs added"
 
-			# Cleanup
-			rm -rf susfs4ksu
-			echo "🎉 SukiSU-Ultra with SUSFS fully integrated!"
+          # Cleanup
+          rm -rf susfs4ksu
+
+          echo "🎉 SukiSU-Ultra with SUSFS fully integrated!"
 
       - name: "⚙️ Setup basic configs"
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
