@@ -181,9 +181,19 @@ jobs:
             exit 1
           }
 
-          if [ ! -L "drivers/kernelsu" ] && [ ! -d "drivers/kernelsu" ]; then
-            ln -sf "$(pwd)/SukiSU-Ultra/kernel" drivers/kernelsu
+          # Fix drivers/kernelsu symlink — always recreate to ensure correctness
+          rm -rf drivers/kernelsu
+          ln -sf "$(pwd)/SukiSU-Ultra/kernel" drivers/kernelsu
+          echo "✔ Symlink: drivers/kernelsu → $(readlink drivers/kernelsu)"
+          
+          # Verify Makefile is reachable
+          if [ ! -f "drivers/kernelsu/Makefile" ]; then
+            echo "❌ ERROR: drivers/kernelsu/Makefile still not found!"
+            echo "Contents of SukiSU-Ultra/kernel/:"
+            ls -la SukiSU-Ultra/kernel/
+            exit 1
           fi
+          echo "✔ drivers/kernelsu/Makefile verified"
 
           CONFIG_FILE="arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
 
