@@ -179,14 +179,14 @@ jobs:
           # Clean existing installations
           rm -rf ./KernelSU ./drivers/kernelsu ./Wild_KSU
           
-          echo "📦 Installing Wild-KSU..."
-          curl -LSs "https://raw.githubusercontent.com/WildKernels/Wild_KSU/refs/heads/dev/kernel/setup.sh" | bash -s canary
+          echo "📦 Installing ReSukiSU..."
+          curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/refs/heads/main/kernel/setup.sh" | bash 
           
-          if [ ! -d "Wild_KSU" ]; then
-            echo "❌ ERROR: Wild_KSU directory not found after installation!"
+          if [ ! -d "ReSukiSU" ]; then
+            echo "❌ ERROR: ReSukiSU directory not found after installation!"
             exit 1
           fi
-          echo "✔ Wild-KSU installed successfully"
+          echo "✔ ReSukiSU installed successfully"
           
           echo "📦 Cloning SUSFS4KSU..."
           git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android13-5.15
@@ -238,16 +238,16 @@ jobs:
           fi
           
           # Inject SUSFS integration into KernelSU
-          echo "📦 Integrating SUSFS with Wild-KSU..."
+          echo "📦 Integrating SUSFS with ReSukiSU..."
           
           if [ -d "susfs4ksu/kernel_patches/KernelSU/kernel" ]; then
-            cp -rf susfs4ksu/kernel_patches/KernelSU/kernel/* Wild_KSU/kernel/ || true
-            echo "✔ Copied SUSFS integration files to Wild_KSU/kernel/"
+            cp -rf susfs4ksu/kernel_patches/KernelSU/kernel/* ReSukiSU/kernel/ || true
+            echo "✔ Copied SUSFS integration files to ReSukiSU/kernel/"
           fi
           
           # Apply KSU SUSFS patch with better error handling
           KSU_PATCH="susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch"
-          KSU_C_FILE="Wild_KSU/kernel/ksu.c"
+          KSU_C_FILE="ReSukiSU/kernel/ksu.c"
           
           if [ ! -f "$KSU_C_FILE" ]; then
             echo "❌ ERROR: $KSU_C_FILE not found!"
@@ -327,11 +327,11 @@ jobs:
           
           # Ensure drivers/kernelsu symlink exists
           if [ ! -L "drivers/kernelsu" ] && [ ! -d "drivers/kernelsu" ]; then
-            ln -sf ../Wild_KSU drivers/kernelsu
+            ln -sf ../ReSukiSU drivers/kernelsu
             echo "✔ Created drivers/kernelsu symlink"
           fi
           
-          # Add Wild-KSU and SUSFS configs
+          # Add ReSukiSU and SUSFS configs
           CONFIG_FILE="arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
           cat >> "$CONFIG_FILE" << 'EOF'
           CONFIG_KSU=y
@@ -356,12 +356,12 @@ jobs:
           CONFIG_KSU_SUSFS_SUS_SU=y
           EOF
           
-          echo "✔ Wild-KSU configs with SUSFS added"
+          echo "✔ ReSukiSU configs with SUSFS added"
           
           # Clean up
           rm -rf susfs4ksu
           
-          echo "🎉 Wild-KSU with SUSFS fully integrated and verified!"
+          echo "🎉 ReSukiSU with SUSFS fully integrated and verified!"
 
       - name: "⚙️ Setup basic configs"
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
