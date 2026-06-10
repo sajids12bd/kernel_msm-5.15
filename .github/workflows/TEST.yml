@@ -123,7 +123,7 @@ jobs:
         if: matrix.kernel.enable_ksu == true
         working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
-          echo "Adding BBG...";
+          echo "Adding BBG..."
           wget -O- https://github.com/vc-teahouse/Baseband-guard/raw/main/setup.sh | bash
           echo "CONFIG_BBG=y" >> arch/arm64/configs/${{ env.DEFCONFIG_NAME }}
           sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/selinux/selinux,baseband_guard/ } }' security/Kconfig
@@ -140,91 +140,111 @@ jobs:
           echo "📦 Installing SukiSU-Ultra..."
           curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s main
 
+          # setup.sh clones as 'KernelSU' — rename it
           if [ -d "KernelSU" ] && [ ! -d "SukiSU-Ultra" ]; then
             mv KernelSU SukiSU-Ultra
             echo "✔ Renamed KernelSU → SukiSU-Ultra"
           fi
 
           [ -d "SukiSU-Ultra" ] || { echo "❌ SukiSU-Ultra not found!"; exit 1; }
+          echo "✔ SukiSU-Ultra ready"
 
-          echo "📦 Cloning SUSFS4KSU..."
-          git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android13-5.15
-
-          SUSFS_PATCH="susfs4ksu/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch"
-          if [ -f "$SUSFS_PATCH" ]; then
-            patch -p1 --forward < "$SUSFS_PATCH" || true
-          fi
-
-          mkdir -p fs include/linux
-
-          cp -f susfs4ksu/kernel_patches/fs/susfs.c fs/susfs.c
-          cp -f susfs4ksu/kernel_patches/include/linux/susfs.h include/linux/susfs.h
-
-          [ -f "susfs4ksu/kernel_patches/include/linux/susfs_def.h" ] && \
-            cp -f susfs4ksu/kernel_patches/include/linux/susfs_def.h include/linux/susfs_def.h
-
-          if [ -d "susfs4ksu/kernel_patches/KernelSU/kernel" ]; then
-            cp -rf susfs4ksu/kernel_patches/KernelSU/kernel/* SukiSU-Ultra/kernel/ || true
-          fi
-
-          KSU_PATCH="susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch"
-          if [ -f "$KSU_PATCH" ]; then
-            (
-              cd SukiSU-Ultra
-              patch -p1 --forward < "../$KSU_PATCH" || true
-            )
-          fi
-
+          # Verify SukiSU-Ultra kernel entry point
           INIT_C="SukiSU-Ultra/kernel/core/init.c"
           [ -f "$INIT_C" ] || {
-            echo "❌ ERROR: $INIT_C not found!"
+            echo "❌ ERROR: $INIT_C not found! Listing SukiSU-Ultra/kernel/:"
+            ls -la SukiSU-Ultra/kernel/ || true
             exit 1
           }
+          echo "✔ Found entry point: $INIT_C"
 
-          # Fix drivers/kernelsu symlink — always recreate to ensure correctness
+          # Fix drivers/kernelsu symlink — always force recreate with absolute path
+          KERNEL_SRC_ABS="$(realpath SukiSU-Ultra/kernel)"
           rm -rf drivers/kernelsu
-          ln -sf "$(pwd)/SukiSU-Ultra/kernel" drivers/kernelsu
-          echo "✔ Symlink: drivers/kernelsu → $(readlink drivers/kernelsu)"
-          
-          # Verify Makefile is reachable
+          ln -sf "$KERNEL_SRC_ABS" drivers/kernelsu
+          echo "✔ Symlink: drivers/kernelsu → $(readlink -f drivers/kernelsu)"
+
+          # Verify Makefile is reachable through symlink
           if [ ! -f "drivers/kernelsu/Makefile" ]; then
-            echo "❌ ERROR: drivers/kernelsu/Makefile still not found!"
-            echo "Contents of SukiSU-Ultra/kernel/:"
-            ls -la SukiSU-Ultra/kernel/
+            echo "❌ ERROR: drivers/kernelsu/Makefile not found!"
+            echo "Absolute path used: $KERNEL_SRC_ABS"
+            ls -la "$KERNEL_SRC_ABS"
             exit 1
           fi
           echo "✔ drivers/kernelsu/Makefile verified"
 
+          echo "📦 Cloning SUSFS4KSU..."
+          git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android13-5.15
+          [ -d "susfs4ksu" ] || { echo "❌ SUSFS clone failed!"; exit 1; }
+
+          # Apply SUSFS kernel patch
+          SUSFS_PATCH="susfs4ksu/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch"
+          if [ -f "$SUSFS_PATCH" ]; then
+            echo "🔧 Applying SUSFS kernel patch..."
+            patch -p1 --forward < "$SUSFS_PATCH" && echo "✅ SUSFS patch applied" || echo "⚠️ Patch had issues, continuing..."
+          else
+            echo "⚠️ SUSFS patch not found: $SUSFS_PATCH"
+          fi
+
+          # Copy SUSFS source files
+          echo "📄 Installing SUSFS source files..."
+          mkdir -p fs include/linux
+
+          cp -f susfs4ksu/kernel_patches/fs/susfs.c fs/susfs.c \
+            && echo "✔ Copied fs/susfs.c" \
+            || { echo "❌ fs/susfs.c missing!"; exit 1; }
+
+          cp -f susfs4ksu/kernel_patches/include/linux/susfs.h include/linux/susfs.h \
+            && echo "✔ Copied include/linux/susfs.h" \
+            || { echo "❌ susfs.h missing!"; exit 1; }
+
+          [ -f "susfs4ksu/kernel_patches/include/linux/susfs_def.h" ] && \
+            cp -f susfs4ksu/kernel_patches/include/linux/susfs_def.h include/linux/susfs_def.h && \
+            echo "✔ Copied susfs_def.h" || echo "⚠️ susfs_def.h not found, skipping"
+
+          # Copy SUSFS KSU integration files
+          if [ -d "susfs4ksu/kernel_patches/KernelSU/kernel" ]; then
+            cp -rf susfs4ksu/kernel_patches/KernelSU/kernel/* SukiSU-Ultra/kernel/ || true
+            echo "✔ Copied SUSFS integration files to SukiSU-Ultra/kernel/"
+          fi
+
+          # Apply KSU SUSFS patch
+          KSU_PATCH="susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch"
+          if [ -f "$KSU_PATCH" ]; then
+            (
+              cd SukiSU-Ultra
+              patch -p1 --forward < "../$KSU_PATCH" && echo "✔ KSU SUSFS patch applied" || echo "⚠️ KSU patch had issues, continuing..."
+            )
+          fi
+
+          # Add KSU and SUSFS configs — NO leading spaces (critical!)
           CONFIG_FILE="arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
-
           cat >> "$CONFIG_FILE" << 'EOF'
-          CONFIG_KSU=y
-          CONFIG_KPROBES=y
-          CONFIG_HAVE_KPROBES=y
-          CONFIG_KPROBE_EVENTS=y
-          CONFIG_OVERLAY_FS=y
-          CONFIG_KSU_SUSFS=y
-          CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
-          CONFIG_KSU_SUSFS_SUS_PATH=y
-          CONFIG_KSU_SUSFS_SUS_MOUNT=y
-          CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y
-          CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y
-          CONFIG_KSU_SUSFS_SUS_KSTAT=y
-          CONFIG_KSU_SUSFS_TRY_UMOUNT=y
-          CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y
-          CONFIG_KSU_SUSFS_SPOOF_UNAME=y
-          CONFIG_KSU_SUSFS_ENABLE_LOG=y
-          CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
-          CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
-          CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
-          CONFIG_KSU_SUSFS_SUS_SU=y
-          EOF
-
+CONFIG_KSU=y
+CONFIG_KPROBES=y
+CONFIG_HAVE_KPROBES=y
+CONFIG_KPROBE_EVENTS=y
+CONFIG_OVERLAY_FS=y
+CONFIG_KSU_SUSFS=y
+CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
+CONFIG_KSU_SUSFS_SUS_PATH=y
+CONFIG_KSU_SUSFS_SUS_MOUNT=y
+CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y
+CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y
+CONFIG_KSU_SUSFS_SUS_KSTAT=y
+CONFIG_KSU_SUSFS_TRY_UMOUNT=y
+CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y
+CONFIG_KSU_SUSFS_SPOOF_UNAME=y
+CONFIG_KSU_SUSFS_ENABLE_LOG=y
+CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
+CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
+CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
+CONFIG_KSU_SUSFS_SUS_SU=y
+EOF
           echo "✔ KSU + SUSFS configs added"
 
           # Cleanup
           rm -rf susfs4ksu
-
           echo "🎉 SukiSU-Ultra with SUSFS fully integrated!"
 
       - name: "⚙️ Setup basic configs"
@@ -232,30 +252,27 @@ jobs:
         run: |
           CONFIG_FILE="./arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
           
-          # addon configs
+          # addon configs — NO leading spaces (critical!)
           cat >> "$CONFIG_FILE" << 'EOF'
-          CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y
-          CONFIG_TCP_CONG_ADVANCED=y
-          CONFIG_TCP_CONG_BIC=n
-          CONFIG_TCP_CONG_WESTWOOD=y
-          CONFIG_TCP_CONG_HTCP=n
-          CONFIG_TCP_CONG_BBR=y
-          CONFIG_DEFAULT_WESTWOOD=y
-          CONFIG_OVERLAY_FS=y
-          CONFIG_TMPFS_XATTR=y
-          CONFIG_TMPFS_POSIX_ACL=y
-          CONFIG_KALLSYMS=y
-          EOF
-          
+CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y
+CONFIG_TCP_CONG_ADVANCED=y
+CONFIG_TCP_CONG_BIC=n
+CONFIG_TCP_CONG_WESTWOOD=y
+CONFIG_TCP_CONG_HTCP=n
+CONFIG_TCP_CONG_BBR=y
+CONFIG_DEFAULT_WESTWOOD=y
+CONFIG_OVERLAY_FS=y
+CONFIG_TMPFS_XATTR=y
+CONFIG_TMPFS_POSIX_ACL=y
+CONFIG_KALLSYMS=y
+EOF
           echo "✅ Basic configs added"
 
       - name: "📝 Append custom Makefile line"
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
-         # echo 'KBUILD_CFLAGS += -Wno-default-const-init-unsafe' >> Makefile
-         # echo 'KBUILD_CFLAGS += -Wno-uninitialized-const-pointer' >> Makefile
-         echo 'KBUILD_CFLAGS += -Wno-implicit-function-declaration' >> Makefile
-         echo "Custom Makefile line added successfully"
+          echo 'KBUILD_CFLAGS += -Wno-implicit-function-declaration' >> Makefile
+          echo "Custom Makefile line added successfully"
     
       - name: "🔨 Build kernel"
         working-directory: ${{ env.WORK_DIR }}
