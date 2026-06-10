@@ -170,17 +170,17 @@ jobs:
           echo "CONFIG_BBG=y" >> arch/arm64/configs/${{ env.DEFCONFIG_NAME }}
           sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/selinux/selinux,baseband_guard/ } }' security/Kconfig
 
-      - name: "🔧 Setup Wild-KSU with SUSFS"
+      - name: "🔧 Setup ReSukiSU with SUSFS"
         if: matrix.kernel.enable_ksu == true
         working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
           set -e
           
           # Clean existing installations
-          rm -rf ./KernelSU ./drivers/kernelsu ./Wild_KSU
+          rm -rf ./KernelSU ./drivers/kernelsu ./Wild_KSU ./ReSukiSU
           
           echo "📦 Installing ReSukiSU..."
-          curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/refs/heads/main/kernel/setup.sh" | bash 
+          curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/refs/heads/main/kernel/setup.sh" | bash -s main
           
           if [ ! -d "ReSukiSU" ]; then
             echo "❌ ERROR: ReSukiSU directory not found after installation!"
