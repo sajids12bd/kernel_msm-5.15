@@ -139,7 +139,7 @@ jobs:
           [ -L "drivers/kernelsu" ] && rm drivers/kernelsu || true
           
           echo "📦 Installing ReSukiSU (direct clone)..."
-          git clone --depth=1 https://github.com/ReSukiSU/ReSukiSU KernelSU
+          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/refs/heads/dev/kernel/setup.sh" | bash -s dev
           
           KSU_C_FILE="KernelSU/kernel/ksu.c"
           if [ ! -f "$KSU_C_FILE" ]; then
