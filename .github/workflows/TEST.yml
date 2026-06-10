@@ -158,6 +158,25 @@ jobs:
             exit 1
           fi
           echo "✔ SukiSU-Ultra installed successfully"
+
+          # After the rename block, detect ksu.c location
+          KSU_C_FILE=""
+          for candidate in \
+            "SukiSU-Ultra/kernel/ksu.c" \
+            "SukiSU-Ultra/ksu.c" \
+            "KernelSU/kernel/ksu.c"; do
+            if [ -f "$candidate" ]; then
+              KSU_C_FILE="$candidate"
+              echo "✔ Found ksu.c at: $KSU_C_FILE"
+              break
+            fi
+          done
+          
+          if [ -z "$KSU_C_FILE" ]; then
+            echo "❌ ERROR: ksu.c not found anywhere! Dumping SukiSU-Ultra tree:"
+            find SukiSU-Ultra -type f | head -40
+            exit 1
+          fi
           
           echo "📦 Cloning SUSFS4KSU..."
           git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android13-5.15
@@ -218,7 +237,7 @@ jobs:
           
           # Apply KSU SUSFS patch with better error handling
           KSU_PATCH="susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch"
-          KSU_C_FILE="SukiSU-Ultra/kernel/ksu.c"
+          # KSU_C_FILE="SukiSU-Ultra/kernel/ksu.c"
           
           if [ ! -f "$KSU_C_FILE" ]; then
             echo "❌ ERROR: $KSU_C_FILE not found!"
