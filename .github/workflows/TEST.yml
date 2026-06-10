@@ -133,15 +133,28 @@ jobs:
         working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
           set -e
-          
+      
           # Clean existing installations
           rm -rf ./KernelSU ./drivers/kernelsu ./SukiSU-Ultra
-          
+      
           echo "📦 Installing SukiSU-Ultra..."
           curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s main
-          
-          if [ ! -d "SukiSU-Ultra" ]; then
-            echo "❌ ERROR: SukiSU-Ultra directory not found after installation!"
+      
+          # ── NEW: detect actual directory created by the setup script ──
+          echo "📂 Listing directories after setup.sh:"
+          ls -la | grep "^d"
+      
+          # The setup script may create 'KernelSU' instead of 'SukiSU-Ultra'
+          if [ -d "SukiSU-Ultra" ]; then
+            echo "✔ SukiSU-Ultra directory found"
+          elif [ -d "KernelSU" ]; then
+            echo "⚠️ Found 'KernelSU' instead of 'SukiSU-Ultra' — renaming..."
+            mv KernelSU SukiSU-Ultra
+            echo "✔ Renamed to SukiSU-Ultra"
+          else
+            echo "❌ ERROR: Neither SukiSU-Ultra nor KernelSU found after setup.sh!"
+            echo "Directories present:"
+            ls -la
             exit 1
           fi
           echo "✔ SukiSU-Ultra installed successfully"
