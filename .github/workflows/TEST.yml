@@ -182,7 +182,7 @@ jobs:
           echo "📦 Installing ReSukiSU..."
           curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/refs/heads/main/kernel/setup.sh" | bash -s main
           
-          if [ ! -d "ReSukiSU" ]; then
+          if [ ! -d "KernelSU" ]; then
             echo "❌ ERROR: ReSukiSU directory not found after installation!"
             exit 1
           fi
@@ -241,13 +241,13 @@ jobs:
           echo "📦 Integrating SUSFS with ReSukiSU..."
           
           if [ -d "susfs4ksu/kernel_patches/KernelSU/kernel" ]; then
-            cp -rf susfs4ksu/kernel_patches/KernelSU/kernel/* ReSukiSU/kernel/ || true
+            cp -rf susfs4ksu/kernel_patches/KernelSU/kernel/* KernelSU/kernel/ || true
             echo "✔ Copied SUSFS integration files to ReSukiSU/kernel/"
           fi
           
           # Apply KSU SUSFS patch with better error handling
           KSU_PATCH="susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch"
-          KSU_C_FILE="ReSukiSU/kernel/ksu.c"
+          KSU_C_FILE="KernelSU/kernel/ksu.c"
           
           if [ ! -f "$KSU_C_FILE" ]; then
             echo "❌ ERROR: $KSU_C_FILE not found!"
@@ -263,7 +263,7 @@ jobs:
             # Try applying patch first
             PATCH_SUCCESS=0
             if [ -f "$KSU_PATCH" ]; then
-              cd Wild_KSU
+              cd KernelSU
               if patch -p1 --forward --dry-run < "../$KSU_PATCH" >/dev/null 2>&1; then
                 patch -p1 < "../$KSU_PATCH" && PATCH_SUCCESS=1
                 echo "✔ Applied KSU SUSFS patch successfully"
@@ -327,7 +327,7 @@ jobs:
           
           # Ensure drivers/kernelsu symlink exists
           if [ ! -L "drivers/kernelsu" ] && [ ! -d "drivers/kernelsu" ]; then
-            ln -sf ../ReSukiSU drivers/kernelsu
+            ln -sf ../KernelSU drivers/kernelsu
             echo "✔ Created drivers/kernelsu symlink"
           fi
           
