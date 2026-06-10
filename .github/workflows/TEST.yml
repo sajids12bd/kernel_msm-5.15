@@ -172,17 +172,17 @@ jobs:
             fi
           done
 
-          - name: "🔍 Debug SukiSU-Ultra structure"
-            working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
-            run: |
-              echo "=== SukiSU-Ultra directory structure ==="
-              find SukiSU-Ultra -type f -name "*.c" | head -30
-              echo ""
-              echo "=== Top-level contents ==="
-              ls -la SukiSU-Ultra/
-              echo ""
-              echo "=== kernel/ contents (if exists) ==="
-              ls -la SukiSU-Ultra/kernel/ 2>/dev/null || echo "No kernel/ subdir found"
+      - name: "🔍 Debug SukiSU-Ultra structure"
+        working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
+        run: |
+          echo "=== SukiSU-Ultra directory structure ==="
+          find SukiSU-Ultra -type f -name "*.c" | head -30
+          echo ""
+          echo "=== Top-level contents ==="
+          ls -la SukiSU-Ultra/
+          echo ""
+          echo "=== kernel/ contents (if exists) ==="
+          ls -la SukiSU-Ultra/kernel/ 2>/dev/null || echo "No kernel/ subdir found"
           
           if [ -z "$KSU_C_FILE" ]; then
             echo "❌ ERROR: ksu.c not found anywhere! Dumping SukiSU-Ultra tree:"
