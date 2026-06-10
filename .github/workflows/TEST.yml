@@ -119,6 +119,23 @@ jobs:
             [ -n "$p" ] && apply_patch "$p"
           done
 
+      - name: "🔍 Debug - Test ReSukiSU clone"
+        working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
+        run: |
+          echo "=== Current directory ==="
+          pwd
+          
+          echo "=== Attempting clone ==="
+          git clone --depth=1 https://github.com/ReSukiSU/ReSukiSU KernelSU_test && echo "Clone SUCCESS" || echo "Clone FAILED"
+              
+          echo "=== KernelSU_test contents ==="
+          ls -la KernelSU_test/ 2>/dev/null || echo "Directory does not exist"
+              
+          echo "=== KernelSU_test/kernel contents ==="
+          ls -la KernelSU_test/kernel/ 2>/dev/null || echo "kernel/ subdir does not exist"
+              
+          rm -rf KernelSU_test
+
       - name: "🔧 Add BBG Support (KSU variant only)"
         if: matrix.kernel.enable_ksu == true
         working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
