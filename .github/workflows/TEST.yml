@@ -1,4 +1,4 @@
-name: "Build YASK"
+name: "Build TEST"
 
 env:
   OUT_DIR: "out"
@@ -128,7 +128,7 @@ jobs:
           echo "CONFIG_BBG=y" >> arch/arm64/configs/${{ env.DEFCONFIG_NAME }}
           sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/selinux/selinux,baseband_guard/ } }' security/Kconfig
 
-      - name: "🔧 Setup Wild-KSU with SUSFS"
+      - name: "🔧 Setup SukiSU-Ultra with SUSFS"
         if: matrix.kernel.enable_ksu == true
         working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
@@ -137,14 +137,14 @@ jobs:
           # Clean existing installations
           rm -rf ./KernelSU ./drivers/kernelsu ./SukiSU-Ultra
           
-          echo "📦 Installing Wild-KSU..."
-          curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/refs/heads/main/kernel/setup.sh" | bash -s main
+          echo "📦 Installing SukiSU-Ultra..."
+          curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
           
           if [ ! -d "SukiSU-Ultra" ]; then
             echo "❌ ERROR: SukiSU-Ultra directory not found after installation!"
             exit 1
           fi
-          echo "✔ Wild-KSU installed successfully"
+          echo "✔ SukiSU-Ultra installed successfully"
           
           echo "📦 Cloning SUSFS4KSU..."
           git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android13-5.15
@@ -196,7 +196,7 @@ jobs:
           fi
           
           # Inject SUSFS integration into KernelSU
-          echo "📦 Integrating SUSFS with Wild-KSU..."
+          echo "📦 Integrating SUSFS with SukiSU-Ultra..."
           
           if [ -d "susfs4ksu/kernel_patches/KernelSU/kernel" ]; then
             cp -rf susfs4ksu/kernel_patches/KernelSU/kernel/* SukiSU-Ultra/kernel/ || true
