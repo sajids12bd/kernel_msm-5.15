@@ -128,38 +128,38 @@ jobs:
           echo "CONFIG_BBG=y" >> arch/arm64/configs/${{ env.DEFCONFIG_NAME }}
           sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/selinux/selinux,baseband_guard/ } }' security/Kconfig
 
-      - name: "🔧 Setup SukiSU-Ultra with SUSFS"
+      - name: "🔧 Setup ReSukiSU with SUSFS"
         if: matrix.kernel.enable_ksu == true
         working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
           set -e
 
           # Clean existing installations
-          rm -rf ./KernelSU ./drivers/kernelsu ./SukiSU-Ultra
+          rm -rf ./KernelSU ./drivers/kernelsu ./ReSukiSU
 
-          echo "📦 Installing SukiSU-Ultra..."
-          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s main
-
+          echo "📦 Installing ReSukiSU..."
+          curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash
+          
           # setup.sh clones as 'KernelSU' — rename it
-          if [ -d "KernelSU" ] && [ ! -d "SukiSU-Ultra" ]; then
-            mv KernelSU SukiSU-Ultra
-            echo "✔ Renamed KernelSU → SukiSU-Ultra"
+          if [ -d "KernelSU" ] && [ ! -d "ReSukiSU" ]; then
+            mv KernelSU ReSukiSU
+            echo "✔ Renamed KernelSU → ReSukiSU"
           fi
 
-          [ -d "SukiSU-Ultra" ] || { echo "❌ SukiSU-Ultra not found!"; exit 1; }
-          echo "✔ SukiSU-Ultra ready"
+          [ -d "ReSukiSU" ] || { echo "❌ ReSukiSU not found!"; exit 1; }
+          echo "✔ ReSukiSU ready"
 
-          # Verify SukiSU-Ultra kernel entry point
-          INIT_C="SukiSU-Ultra/kernel/core/init.c"
+          # Verify ReSukiSU kernel entry point
+          INIT_C="ReSukiSU/kernel/core/init.c"
           [ -f "$INIT_C" ] || {
-            echo "❌ ERROR: $INIT_C not found! Listing SukiSU-Ultra/kernel/:"
-            ls -la SukiSU-Ultra/kernel/ || true
+            echo "❌ ERROR: $INIT_C not found! Listing ReSukiSU/kernel/:"
+            ls -la ReSukiSU/kernel/ || true
             exit 1
           }
           echo "✔ Found entry point: $INIT_C"
 
           # Fix drivers/kernelsu symlink — always force recreate with absolute path
-          KERNEL_SRC_ABS="$(realpath SukiSU-Ultra/kernel)"
+          KERNEL_SRC_ABS="$(realpath ReSukiSU/kernel)"
           rm -rf drivers/kernelsu
           ln -sf "$KERNEL_SRC_ABS" drivers/kernelsu
           echo "✔ Symlink: drivers/kernelsu → $(readlink -f drivers/kernelsu)"
@@ -204,15 +204,15 @@ jobs:
 
           # Copy SUSFS KSU integration files
           if [ -d "susfs4ksu/kernel_patches/KernelSU/kernel" ]; then
-            cp -rf susfs4ksu/kernel_patches/KernelSU/kernel/* SukiSU-Ultra/kernel/ || true
-            echo "✔ Copied SUSFS integration files to SukiSU-Ultra/kernel/"
+            cp -rf susfs4ksu/kernel_patches/KernelSU/kernel/* ReSukiSU/kernel/ || true
+            echo "✔ Copied SUSFS integration files to ReSukiSU/kernel/"
           fi
 
           # Apply KSU SUSFS patch
           KSU_PATCH="susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch"
           if [ -f "$KSU_PATCH" ]; then
             (
-              cd SukiSU-Ultra
+              cd ReSukiSU
               patch -p1 --forward < "../$KSU_PATCH" && echo "✔ KSU SUSFS patch applied" || echo "⚠️ KSU patch had issues, continuing..."
             )
           fi
@@ -245,7 +245,7 @@ jobs:
 
           # Cleanup
           rm -rf susfs4ksu
-          echo "🎉 SukiSU-Ultra with SUSFS fully integrated!"
+          echo "🎉 ReSukiSU with SUSFS fully integrated!"
 
       - name: "⚙️ Setup basic configs"
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
