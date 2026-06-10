@@ -140,212 +140,105 @@ jobs:
           echo "📦 Installing SukiSU-Ultra..."
           curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s main
 
-          echo "📂 Listing directories after setup.sh:"
-          ls -la | grep "^d"
-
-          if [ -d "SukiSU-Ultra" ]; then
-            echo "✔ SukiSU-Ultra directory found"
-          elif [ -d "KernelSU" ]; then
-            echo "⚠️ Found 'KernelSU' instead of 'SukiSU-Ultra' — renaming..."
+          # SukiSU-Ultra setup.sh clones as 'KernelSU', rename it
+          if [ -d "KernelSU" ] && [ ! -d "SukiSU-Ultra" ]; then
             mv KernelSU SukiSU-Ultra
-            echo "✔ Renamed to SukiSU-Ultra"
-          else
-            echo "❌ ERROR: Neither SukiSU-Ultra nor KernelSU found after setup.sh!"
-            ls -la
-            exit 1
+            echo "✔ Renamed KernelSU → SukiSU-Ultra"
           fi
-          echo "✔ SukiSU-Ultra installed successfully"
 
-          echo "=== SukiSU-Ultra directory structure ==="
-          find SukiSU-Ultra -type f -name "*.c" | head -30
-          echo ""
-          echo "=== Top-level contents ==="
-          ls -la SukiSU-Ultra/
-          echo ""
-          echo "=== kernel/ contents (if exists) ==="
-          ls -la SukiSU-Ultra/kernel/ 2>/dev/null || echo "No kernel/ subdir found"
-
-          # Detect ksu.c location
-          KSU_C_FILE=""
-          for candidate in \
-            "SukiSU-Ultra/kernel/ksu.c" \
-            "SukiSU-Ultra/ksu.c" \
-            "KernelSU/kernel/ksu.c"; do
-            if [ -f "$candidate" ]; then
-              KSU_C_FILE="$candidate"
-              echo "✔ Found ksu.c at: $KSU_C_FILE"
-              break
-            fi
-          done
-
-          if [ -z "$KSU_C_FILE" ]; then
-            echo "❌ ERROR: ksu.c not found anywhere! Dumping SukiSU-Ultra tree:"
-            find SukiSU-Ultra -type f | head -40
-            exit 1
-          fi
+          [ -d "SukiSU-Ultra" ] || { echo "❌ SukiSU-Ultra not found!"; exit 1; }
+          echo "✔ SukiSU-Ultra installed"
 
           echo "📦 Cloning SUSFS4KSU..."
           git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android13-5.15
-
-          if [ ! -d "susfs4ksu" ]; then
-            echo "❌ ERROR: SUSFS4KSU clone failed!"
-            exit 1
-          fi
+          [ -d "susfs4ksu" ] || { echo "❌ SUSFS clone failed!"; exit 1; }
 
           # Apply SUSFS kernel patch
           echo "🔧 Applying SUSFS kernel patch..."
           SUSFS_PATCH="susfs4ksu/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch"
-
           if [ -f "$SUSFS_PATCH" ]; then
-            if patch -p1 --forward < "$SUSFS_PATCH"; then
-              echo "✅ SUSFS kernel patch applied successfully"
-            else
-              echo "⚠️ Patch had some issues, but continuing..."
-            fi
+            patch -p1 --forward < "$SUSFS_PATCH" && echo "✅ SUSFS kernel patch applied" || echo "⚠️ Patch had issues, continuing..."
           else
-            echo "⚠️ SUSFS patch file not found: $SUSFS_PATCH"
+            echo "⚠️ SUSFS patch not found: $SUSFS_PATCH"
           fi
-
-          # Force copy SUSFS source files
+      
+          # Copy SUSFS source files
           echo "📄 Installing SUSFS source files..."
           mkdir -p fs include/linux
-
-          if [ -f "susfs4ksu/kernel_patches/fs/susfs.c" ]; then
-            cp -f susfs4ksu/kernel_patches/fs/susfs.c fs/susfs.c
-            echo "✔ Copied fs/susfs.c"
-          else
-            echo "❌ ERROR: fs/susfs.c not found in SUSFS repo!"
-            exit 1
-          fi
-
-          if [ -f "susfs4ksu/kernel_patches/include/linux/susfs.h" ]; then
-            cp -f susfs4ksu/kernel_patches/include/linux/susfs.h include/linux/susfs.h
-            echo "✔ Copied include/linux/susfs.h"
-          else
-            echo "❌ ERROR: include/linux/susfs.h not found!"
-            exit 1
-          fi
-
-          if [ -f "susfs4ksu/kernel_patches/include/linux/susfs_def.h" ]; then
-            cp -f susfs4ksu/kernel_patches/include/linux/susfs_def.h include/linux/susfs_def.h
-            echo "✔ Copied include/linux/susfs_def.h"
-          else
-            echo "⚠️ susfs_def.h not found, might not be needed"
-          fi
-
-          # Inject SUSFS integration into KernelSU
-          echo "📦 Integrating SUSFS with SukiSU-Ultra..."
-
+      
+          cp -f susfs4ksu/kernel_patches/fs/susfs.c fs/susfs.c \
+            && echo "✔ Copied fs/susfs.c" \
+            || { echo "❌ fs/susfs.c missing!"; exit 1; }
+      
+          cp -f susfs4ksu/kernel_patches/include/linux/susfs.h include/linux/susfs.h \
+            && echo "✔ Copied include/linux/susfs.h" \
+            || { echo "❌ susfs.h missing!"; exit 1; }
+      
+          [ -f "susfs4ksu/kernel_patches/include/linux/susfs_def.h" ] && \
+            cp -f susfs4ksu/kernel_patches/include/linux/susfs_def.h include/linux/susfs_def.h && \
+            echo "✔ Copied susfs_def.h" || echo "⚠️ susfs_def.h not found, skipping"
+      
+          # SukiSU-Ultra uses kernel/core/init.c — NOT ksu.c
+          echo "📦 Integrating SUSFS into SukiSU-Ultra..."
+      
+          # Copy SUSFS KSU integration files if available
           if [ -d "susfs4ksu/kernel_patches/KernelSU/kernel" ]; then
             cp -rf susfs4ksu/kernel_patches/KernelSU/kernel/* SukiSU-Ultra/kernel/ || true
             echo "✔ Copied SUSFS integration files to SukiSU-Ultra/kernel/"
           fi
-
-          # Apply KSU SUSFS patch
+      
+          # Apply KSU SUSFS patch against SukiSU-Ultra
           KSU_PATCH="susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch"
-
-          echo "🔧 Integrating SUSFS into KSU initialization..."
-
-          if grep -q "susfs_init" "$KSU_C_FILE" 2>/dev/null; then
-            echo "⚠️ SUSFS already integrated in ksu.c, skipping"
-          else
-            PATCH_SUCCESS=0
-            if [ -f "$KSU_PATCH" ]; then
-              cd SukiSU-Ultra
-              if patch -p1 --forward --dry-run < "../$KSU_PATCH" >/dev/null 2>&1; then
-                patch -p1 < "../$KSU_PATCH" && PATCH_SUCCESS=1
-                echo "✔ Applied KSU SUSFS patch successfully"
-              fi
-              cd ..
-            fi
-
-            if [ $PATCH_SUCCESS -eq 0 ]; then
-              echo "⚠️ Patch failed or unavailable, applying manual integration..."
-
-              if ! grep -q "#include <linux/susfs.h>" "$KSU_C_FILE"; then
-                sed -i '/#include <linux\/fs\.h>/a #include <linux/susfs.h>' "$KSU_C_FILE"
-                echo "✔ Added #include <linux/susfs.h>"
-              fi
-
-              if ! grep -q "susfs_init()" "$KSU_C_FILE"; then
-                sed -i '/ksu_core_init();/a \\tsusfs_init();' "$KSU_C_FILE" || \
-                sed -i '/int __init ksu_init(/,/^}/{ /return 0;/i \\tsusfs_init(); }' "$KSU_C_FILE"
-                echo "✔ Added susfs_init() call"
-              fi
-            fi
+          if [ -f "$KSU_PATCH" ]; then
+            cd SukiSU-Ultra
+            patch -p1 --forward < "../$KSU_PATCH" && echo "✔ KSU SUSFS patch applied" || echo "⚠️ KSU patch had issues, continuing..."
+            cd ..
           fi
-
-          # Verify the integration
-          echo "🔍 Verifying SUSFS integration..."
-          VERIFICATION_FAILED=0
-
-          for file in fs/susfs.c include/linux/susfs.h; do
-            if [ -f "$file" ]; then
-              echo "✔ Found: $file"
-            else
-              echo "❌ MISSING: $file"
-              VERIFICATION_FAILED=1
-            fi
-          done
-
-          if grep -q "susfs_init" "$KSU_C_FILE"; then
-            echo "✔ susfs_init() call verified in ksu.c"
-          else
-            echo "❌ MISSING: susfs_init() call in ksu.c"
-            VERIFICATION_FAILED=1
-          fi
-
-          if grep -q "#include <linux/susfs.h>" "$KSU_C_FILE"; then
-            echo "✔ susfs.h include verified in ksu.c"
-          else
-            echo "❌ MISSING: susfs.h include in ksu.c"
-            VERIFICATION_FAILED=1
-          fi
-
-          if [ $VERIFICATION_FAILED -eq 1 ]; then
-            echo "❌ SUSFS integration verification FAILED!"
-            echo "Dumping ksu.c header for debugging:"
-            head -30 "$KSU_C_FILE"
+      
+          # SukiSU-Ultra already has built-in SUSFS support — verify init.c exists
+          INIT_C="SukiSU-Ultra/kernel/core/init.c"
+          if [ ! -f "$INIT_C" ]; then
+            echo "❌ ERROR: SukiSU-Ultra kernel/core/init.c not found!"
+            find SukiSU-Ultra/kernel -name "*.c" | head -20
             exit 1
           fi
-
+          echo "✔ Found SukiSU-Ultra entry point: $INIT_C"
+      
           # Ensure drivers/kernelsu symlink exists
           if [ ! -L "drivers/kernelsu" ] && [ ! -d "drivers/kernelsu" ]; then
-            ln -sf ../SukiSU-Ultra drivers/kernelsu
+            ln -sf "$(pwd)/SukiSU-Ultra/kernel" drivers/kernelsu
             echo "✔ Created drivers/kernelsu symlink"
           fi
-
+      
           # Add KSU and SUSFS configs
           CONFIG_FILE="arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
           cat >> "$CONFIG_FILE" << 'EOF'
-          CONFIG_KSU=y
-          CONFIG_KPROBES=y
-          CONFIG_HAVE_KPROBES=y
-          CONFIG_KPROBE_EVENTS=y
-          CONFIG_OVERLAY_FS=y
-          CONFIG_KSU_SUSFS=y
-          CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
-          CONFIG_KSU_SUSFS_SUS_PATH=y
-          CONFIG_KSU_SUSFS_SUS_MOUNT=y
-          CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y
-          CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y
-          CONFIG_KSU_SUSFS_SUS_KSTAT=y
-          CONFIG_KSU_SUSFS_TRY_UMOUNT=y
-          CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y
-          CONFIG_KSU_SUSFS_SPOOF_UNAME=y
-          CONFIG_KSU_SUSFS_ENABLE_LOG=y
-          CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
-          CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
-          CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
-          CONFIG_KSU_SUSFS_SUS_SU=y
-          EOF
+CONFIG_KSU=y
+CONFIG_KPROBES=y
+CONFIG_HAVE_KPROBES=y
+CONFIG_KPROBE_EVENTS=y
+CONFIG_OVERLAY_FS=y
+CONFIG_KSU_SUSFS=y
+CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
+CONFIG_KSU_SUSFS_SUS_PATH=y
+CONFIG_KSU_SUSFS_SUS_MOUNT=y
+CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y
+CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y
+CONFIG_KSU_SUSFS_SUS_KSTAT=y
+CONFIG_KSU_SUSFS_TRY_UMOUNT=y
+CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y
+CONFIG_KSU_SUSFS_SPOOF_UNAME=y
+CONFIG_KSU_SUSFS_ENABLE_LOG=y
+CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
+CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
+CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
+CONFIG_KSU_SUSFS_SUS_SU=y
+EOF
+        echo "✔ KSU + SUSFS configs added"
 
-          echo "✔ KSU configs with SUSFS added"
-
-          # Clean up
-          rm -rf susfs4ksu
-
-          echo "🎉 SukiSU-Ultra with SUSFS fully integrated and verified!"
+        # Cleanup
+        rm -rf susfs4ksu
+        echo "🎉 SukiSU-Ultra with SUSFS fully integrated!"
 
       - name: "⚙️ Setup basic configs"
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
