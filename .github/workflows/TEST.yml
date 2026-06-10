@@ -156,7 +156,8 @@ jobs:
           [ -L "drivers/kernelsu" ] && rm drivers/kernelsu || true
           
           echo "📦 Installing SukiSU-Ultra (direct clone)..."
-          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/refs/heads/main/kernel/setup.sh" | bash -s main
+          git clone --depth=1 https://github.com/SukiSU-Ultra/SukiSU-Ultra KernelSU
+
           
           KSU_C_FILE="KernelSU/kernel/ksu.c"
           if [ ! -f "$KSU_C_FILE" ]; then
