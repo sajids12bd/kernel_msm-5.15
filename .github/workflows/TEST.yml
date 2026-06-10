@@ -155,8 +155,8 @@ jobs:
           rm -rf ./KernelSU ./Wild_KSU ./ReSukiSU
           [ -L "drivers/kernelsu" ] && rm drivers/kernelsu || true
           
-          echo "📦 Installing ReSukiSU (direct clone)..."
-          curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/refs/heads/main/kernel/setup.sh" | bash -s dev
+          echo "📦 Installing SukiSU-Ultra (direct clone)..."
+          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/refs/heads/main/kernel/setup.sh" | bash -s main
           
           KSU_C_FILE="KernelSU/kernel/ksu.c"
           if [ ! -f "$KSU_C_FILE" ]; then
@@ -164,7 +164,7 @@ jobs:
             find KernelSU -maxdepth 3 -name "*.c" | head -20
             exit 1
           fi
-          echo "✔ ReSukiSU cloned successfully"
+          echo "✔ SukiSU-Ultra cloned successfully"
           
           # Create drivers/kernelsu symlink
           ln -sf "$(realpath --relative-to="drivers" "KernelSU/kernel")" drivers/kernelsu
@@ -174,7 +174,7 @@ jobs:
           grep -q "drivers/kernelsu/Kconfig" drivers/Kconfig || \
             sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
           
-          echo "✔ ReSukiSU driver entries configured"
+          echo "✔ SukiSU-Ultra driver entries configured"
 
           echo "📦 Cloning SUSFS4KSU..."
           git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android13-5.15
