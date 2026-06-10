@@ -138,7 +138,7 @@ jobs:
           rm -rf ./KernelSU ./drivers/kernelsu ./SukiSU-Ultra
           
           echo "📦 Installing SukiSU-Ultra..."
-          curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
+          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s main
           
           if [ ! -d "SukiSU-Ultra" ]; then
             echo "❌ ERROR: SukiSU-Ultra directory not found after installation!"
