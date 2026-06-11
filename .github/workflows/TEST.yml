@@ -320,6 +320,22 @@ jobs:
         run: |
           echo 'KBUILD_CFLAGS += -Wno-implicit-function-declaration' >> Makefile
           echo "Custom Makefile line added successfully"
+
+      - name: Debug ReSukiSU hooks
+        working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
+        run: |
+          echo "===== MANUAL HOOK SETTINGS ====="
+          grep -R "KSU_MANUAL_HOOK" ReSukiSU 2>/dev/null || true
+      
+          echo "===== MISSING HOOK ====="
+          grep -R "ksu_handle_newfstat_ret" ReSukiSU . -n || true
+      
+          echo "===== STAT FUNCTIONS ====="
+          grep -R "newfstat" fs include kernel -n || true
+      
+          echo "===== EXISTING KSU HOOKS ====="
+          grep -R "ksu_handle_stat" . -n || true
+          grep -R "ksu_handle_execveat" . -n || true    
     
       - name: "🔨 Build kernel"
         working-directory: ${{ env.WORK_DIR }}
