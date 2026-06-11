@@ -221,11 +221,12 @@ jobs:
             echo "⚠️ SUSFS patch not found: $SUSFS_PATCH"
           fi
 
-          # Add missing ksu_handle_newfstat_ret hook to fs/stat.c
-          echo "🔧 Adding ksu_handle_newfstat_ret hook..."
+          # Add all required ReSukiSU hooks
+          echo "🔧 Adding all required ReSukiSU hooks..."
           python3 << 'PYEOF'
-          import re
+          import os
           
+          # fs/stat.c hooks
           with open('fs/stat.c', 'r') as f:
               content = f.read()
           
@@ -238,11 +239,82 @@ jobs:
                   'SYSCALL_DEFINE2(newfstat, unsigned int, fd, struct stat __user *, statbuf)\n{\n\treturn cp_new_stat',
                   'SYSCALL_DEFINE2(newfstat, unsigned int, fd, struct stat __user *, statbuf)\n{\n\tksu_handle_newfstat_ret(&fd, &statbuf);\n\treturn cp_new_stat'
               )
-              with open('fs/stat.c', 'w') as f:
-                  f.write(content)
-              print("✔ Added ksu_handle_newfstat_ret hook to fs/stat.c")
+              print("✔ Added ksu_handle_newfstat_ret to fs/stat.c")
           else:
               print("✔ ksu_handle_newfstat_ret already present")
+          
+          if 'ksu_handle_fstat64_ret' not in content:
+              content = content.replace(
+                  'SYSCALL_DEFINE2(fstat64, unsigned long, fd, struct stat64 __user *, statbuf)',
+                  'extern void ksu_handle_fstat64_ret(unsigned long *fd, struct stat64 __user **statbuf_ptr);\nSYSCALL_DEFINE2(fstat64, unsigned long, fd, struct stat64 __user *, statbuf)'
+              )
+              print("✔ Added ksu_handle_fstat64_ret to fs/stat.c")
+          else:
+              print("✔ ksu_handle_fstat64_ret already present")
+          
+          with open('fs/stat.c', 'w') as f:
+              f.write(content)
+          
+          # kernel/sys.c or kernel/reboot.c hooks
+          with open('kernel/sys.c', 'r') as f:
+              content = f.read()
+          
+          if 'ksu_handle_setresuid' not in content:
+              content = content.replace(
+                  'SYSCALL_DEFINE3(setresuid,',
+                  'extern int ksu_handle_setresuid(uid_t *ruid, uid_t *euid, uid_t *suid);\nSYSCALL_DEFINE3(setresuid,'
+              )
+              content = content.replace(
+                  'SYSCALL_DEFINE3(setresuid, uid_t, ruid, uid_t, euid, uid_t, suid)\n{',
+                  'SYSCALL_DEFINE3(setresuid, uid_t, ruid, uid_t, euid, uid_t, suid)\n{\n\tksu_handle_setresuid(&ruid, &euid, &suid);'
+              )
+              print("✔ Added ksu_handle_setresuid to kernel/sys.c")
+          else:
+              print("✔ ksu_handle_setresuid already present")
+          
+          with open('kernel/sys.c', 'w') as f:
+              f.write(content)
+          
+          # ksu_handle_sys_reboot
+          target = 'kernel/reboot.c' if os.path.exists('kernel/reboot.c') else 'kernel/sys.c'
+          with open(target, 'r') as f:
+              content = f.read()
+          
+          if 'ksu_handle_sys_reboot' not in content:
+              content = content.replace(
+                  'SYSCALL_DEFINE4(reboot,',
+                  'extern int ksu_handle_sys_reboot(int *magic1, int *magic2, unsigned int *cmd, void __user **arg);\nSYSCALL_DEFINE4(reboot,'
+              )
+              content = content.replace(
+                  'SYSCALL_DEFINE4(reboot, int, magic1, int, magic2, unsigned int, cmd, void __user *, arg)\n{',
+                  'SYSCALL_DEFINE4(reboot, int, magic1, int, magic2, unsigned int, cmd, void __user *, arg)\n{\n\tksu_handle_sys_reboot(&magic1, &magic2, &cmd, &arg);'
+              )
+              print(f"✔ Added ksu_handle_sys_reboot to {target}")
+          else:
+              print("✔ ksu_handle_sys_reboot already present")
+          
+          with open(target, 'w') as f:
+              f.write(content)
+          
+          # drivers/input/input.c hook
+          with open('drivers/input/input.c', 'r') as f:
+              content = f.read()
+          
+          if 'ksu_handle_input_handle_event' not in content:
+              content = content.replace(
+                  'static void input_handle_event(struct input_dev *dev,',
+                  'extern bool ksu_handle_input_handle_event(unsigned int *type, unsigned int *code, int *value);\nstatic void input_handle_event(struct input_dev *dev,'
+              )
+              content = content.replace(
+                  'static void input_handle_event(struct input_dev *dev,\n\t\t\t     unsigned int type, unsigned int code, int value)\n{',
+                  'static void input_handle_event(struct input_dev *dev,\n\t\t\t     unsigned int type, unsigned int code, int value)\n{\n\tif (ksu_handle_input_handle_event(&type, &code, &value)) return;'
+              )
+              print("✔ Added ksu_handle_input_handle_event to drivers/input/input.c")
+          else:
+              print("✔ ksu_handle_input_handle_event already present")
+          
+          with open('drivers/input/input.c', 'w') as f:
+              f.write(content)
           PYEOF
 
 
