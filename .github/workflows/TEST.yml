@@ -492,7 +492,7 @@ jobs:
           set -e
 
           # Clone AnyKernel3
-          curl -LSs "https://raw.githubusercontent.com/sajids12bd/AnyKernel3/master/anykernel.sh" -o AnyKernel3/anykernel.sh
+          git clone --depth=1 https://github.com/sajids12bd/AnyKernel3 -b master AnyKernel3
           
           # Copy kernel images
           find ./artifacts -name "Image.*" -exec cp {} AnyKernel3/ \;
