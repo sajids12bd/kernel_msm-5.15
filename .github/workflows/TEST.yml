@@ -350,7 +350,7 @@ jobs:
           echo 'KBUILD_CFLAGS += -Wno-implicit-function-declaration' >> Makefile
           echo "Custom Makefile line added successfully"
 
-      - name: Debug ReSukiSU hooks
+      - name: "Debug ReSukiSU hooks"
         working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
           echo "===== MANUAL HOOK SETTINGS ====="
@@ -364,7 +364,20 @@ jobs:
       
           echo "===== EXISTING KSU HOOKS ====="
           grep -R "ksu_handle_stat" . -n || true
-          grep -R "ksu_handle_execveat" . -n || true    
+          grep -R "ksu_handle_execveat" . -n || true
+
+      - name: "🔍 Debug required hooks"
+        if: matrix.kernel.enable_ksu == true
+        working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
+        run: |
+          echo "=== All required hooks by ReSukiSU ==="
+          grep -r "You lost" ReSukiSU/kernel/tools/ || true
+          echo ""
+          echo "=== All hooks being checked ==="
+          grep -r "check_ksu_hook" ReSukiSU/kernel/tools/manual_hook_check.mk || true
+          echo ""
+          echo "=== Hooks present in kernel source ==="
+          grep -r "ksu_handle_" fs/ --include="*.c" -l || true
     
       - name: "🔨 Build kernel"
         working-directory: ${{ env.WORK_DIR }}
