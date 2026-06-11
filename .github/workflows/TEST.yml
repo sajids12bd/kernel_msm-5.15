@@ -222,17 +222,24 @@ jobs:
             cp -f susfs4ksu/kernel_patches/include/linux/susfs_def.h include/linux/susfs_def.h && \
             echo "✔ Copied susfs_def.h" || echo "⚠️ susfs_def.h not found, skipping"
 
-               # Fix ksu_late_loaded undeclared identifier
+            # Fix ksu_late_loaded undeclared identifier
             echo "🔧 Fixing ksu_late_loaded declaration..."
             INIT_C="ReSukiSU/kernel/core/init.c"
             if grep -q "ksu_late_loaded" "$INIT_C"; then
-             if ! grep -q "bool ksu_late_loaded" "$INIT_C"; then
-              sed -i 's/ksu_late_loaded = false;/bool ksu_late_loaded = false;/' "$INIT_C"
-              echo "✔ Fixed ksu_late_loaded declaration in init.c"
-             else
-              echo "✔ ksu_late_loaded already declared"
+              if ! grep -q "bool ksu_late_loaded" "$INIT_C"; then
+                # Insert declaration at the top of the file after includes
+                sed -i '/^#include/!b; /^#include/{h;d}; /^[[:space:]]*$/{G;s/\n\(.*\)/\1\nbool ksu_late_loaded = false;/;b}' "$INIT_C" || true
+                # Simpler fallback: just prepend to the file
+                if ! grep -q "bool ksu_late_loaded" "$INIT_C"; then
+                  echo 'bool ksu_late_loaded = false;' > /tmp/ksu_fix.c
+                  cat "$INIT_C" >> /tmp/ksu_fix.c
+                  mv /tmp/ksu_fix.c "$INIT_C"
+                fi
+                echo "✔ Fixed ksu_late_loaded declaration in init.c"
+              else
+                echo "✔ ksu_late_loaded already declared"
+              fi
             fi
-          fi
           
           # Copy SUSFS KSU integration files
            if [ -d "susfs4ksu/kernel_patches/KernelSU/kernel" ]; then
