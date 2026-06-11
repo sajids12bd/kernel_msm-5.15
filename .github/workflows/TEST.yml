@@ -223,19 +223,9 @@ jobs:
             echo "✔ Copied susfs_def.h" || echo "⚠️ susfs_def.h not found, skipping"
 
           # Copy SUSFS KSU integration files
-          if [ -d "susfs4ksu/kernel_patches/KernelSU/kernel" ]; then
-            cp -rf susfs4ksu/kernel_patches/KernelSU/kernel/* ReSukiSU/kernel/ || true
-            echo "✔ Copied SUSFS integration files to ReSukiSU/kernel/"
-          fi
+          
 
           # Apply KSU SUSFS patch
-          KSU_PATCH="susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch"
-          if [ -f "$KSU_PATCH" ]; then
-            (
-              cd ReSukiSU
-              patch -p1 --forward < "../$KSU_PATCH" && echo "✔ KSU SUSFS patch applied" || echo "⚠️ KSU patch had issues, continuing..."
-            )
-          fi
 
           # Add KSU and SUSFS configs — NO leading spaces (critical!)
           CONFIG_FILE="arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
