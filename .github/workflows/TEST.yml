@@ -173,6 +173,26 @@ jobs:
           fi
           echo "✔ drivers/kernelsu/Makefile verified"
 
+          # Fix Kconfig recursive dependency
+          echo "🔧 Fixing Kconfig recursive dependency..."
+          KCONFIG_FILE="ReSukiSU/kernel/Kconfig"
+          if [ ! -f "$KCONFIG_FILE" ]; then
+            echo "⚠️ Kconfig not at ReSukiSU/kernel/Kconfig, searching..."
+            KCONFIG_FILE="$(find ReSukiSU -name 'Kconfig' | head -1)"
+          fi
+
+          if [ -f "$KCONFIG_FILE" ]; then
+            echo "✔ Found Kconfig at: $KCONFIG_FILE"
+            sed -i 's/depends on KSU_MANUAL_HOOK/depends on KSU/g' "$KCONFIG_FILE"
+            echo "✔ Kconfig recursive dependency fixed"
+            echo "🔍 Verifying fix:"
+            grep -n "KSU_SUSFS\|KSU_MANUAL_HOOK" "$KCONFIG_FILE" | head -20 || true
+          else
+            echo "❌ Kconfig not found anywhere in ReSukiSU!"
+            find ReSukiSU -name "Kconfig" | head -10
+            exit 1
+          fi
+
           echo "📦 Cloning SUSFS4KSU..."
           git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android13-5.15
           [ -d "susfs4ksu" ] || { echo "❌ SUSFS clone failed!"; exit 1; }
@@ -241,6 +261,7 @@ jobs:
           CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
           CONFIG_KSU_SUSFS_SUS_SU=y
           EOF
+          sed -i 's/^[[:space:]]*//' "$CONFIG_FILE"
           echo "✔ KSU + SUSFS configs added"
 
           # Cleanup
@@ -266,6 +287,7 @@ jobs:
           CONFIG_TMPFS_POSIX_ACL=y
           CONFIG_KALLSYMS=y
           EOF
+          sed -i 's/^[[:space:]]*//' "$CONFIG_FILE"
           echo "✅ Basic configs added"
 
       - name: "📝 Append custom Makefile line"
