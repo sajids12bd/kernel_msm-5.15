@@ -223,31 +223,17 @@ jobs:
             echo "✔ Copied susfs_def.h" || echo "⚠️ susfs_def.h not found, skipping"
 
                # Fix ksu_late_loaded undeclared identifier
-          echo "🔧 Fixing ksu_late_loaded declaration..."
-          INIT_H="ReSukiSU/kernel/core/init.h"
-          if [ -f "$INIT_H" ]; then
-            if ! grep -q "ksu_late_loaded" "$INIT_H"; then
-              echo "extern bool ksu_late_loaded;" >> "$INIT_H"
-              echo "✔ Added ksu_late_loaded declaration to init.h"
-            else
+            echo "🔧 Fixing ksu_late_loaded declaration..."
+            INIT_C="ReSukiSU/kernel/core/init.c"
+            if grep -q "ksu_late_loaded" "$INIT_C"; then
+             if ! grep -q "bool ksu_late_loaded" "$INIT_C"; then
+              sed -i 's/ksu_late_loaded = false;/bool ksu_late_loaded = false;/' "$INIT_C"
+              echo "✔ Fixed ksu_late_loaded declaration in init.c"
+             else
               echo "✔ ksu_late_loaded already declared"
             fi
-          else
-            INIT_C="ReSukiSU/kernel/core/init.c"
-            if ! grep -q "^bool ksu_late_loaded" "$INIT_C" && ! grep -q "^static bool ksu_late_loaded" "$INIT_C"; then
-              sed -i '1s/^/bool ksu_late_loaded = false;\n/' "$INIT_C"
-              echo "✔ Added ksu_late_loaded definition to init.c"
-            fi
           fi
-
-          # Fix escape_to_root_for_init return type conflict
-          echo "🔧 Fixing escape_to_root_for_init return type..."
-          APP_PROFILE_H="ReSukiSU/kernel/policy/app_profile.h"
-          if [ -f "$APP_PROFILE_H" ]; then
-            sed -i 's/void escape_to_root_for_init(void)/int escape_to_root_for_init(void)/g' "$APP_PROFILE_H"
-            echo "✔ Fixed escape_to_root_for_init return type in app_profile.h"
-          fi
-
+          
           # Copy SUSFS KSU integration files
            if [ -d "susfs4ksu/kernel_patches/KernelSU/kernel" ]; then
             cp -rf susfs4ksu/kernel_patches/KernelSU/kernel/* ReSukiSU/kernel/ || true
