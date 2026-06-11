@@ -221,6 +221,31 @@ jobs:
             echo "⚠️ SUSFS patch not found: $SUSFS_PATCH"
           fi
 
+          # Add missing ksu_handle_newfstat_ret hook to fs/stat.c
+          echo "🔧 Adding ksu_handle_newfstat_ret hook..."
+          python3 << 'PYEOF'
+          import re
+          
+          with open('fs/stat.c', 'r') as f:
+              content = f.read()
+          
+          if 'ksu_handle_newfstat_ret' not in content:
+              content = content.replace(
+                  'SYSCALL_DEFINE2(newfstat, unsigned int, fd, struct stat __user *, statbuf)',
+                  'extern void ksu_handle_newfstat_ret(unsigned int *fd, struct stat __user **statbuf_ptr);\nSYSCALL_DEFINE2(newfstat, unsigned int, fd, struct stat __user *, statbuf)'
+              )
+              content = content.replace(
+                  'SYSCALL_DEFINE2(newfstat, unsigned int, fd, struct stat __user *, statbuf)\n{\n\treturn cp_new_stat',
+                  'SYSCALL_DEFINE2(newfstat, unsigned int, fd, struct stat __user *, statbuf)\n{\n\tksu_handle_newfstat_ret(&fd, &statbuf);\n\treturn cp_new_stat'
+              )
+              with open('fs/stat.c', 'w') as f:
+                  f.write(content)
+              print("✔ Added ksu_handle_newfstat_ret hook to fs/stat.c")
+          else:
+              print("✔ ksu_handle_newfstat_ret already present")
+          PYEOF
+
+
           # Copy SUSFS source files
           echo "📄 Installing SUSFS source files..."
           mkdir -p fs include/linux
