@@ -64,8 +64,23 @@ jobs:
       - name: "🌟 Clone kernel source"
         working-directory: ./${{ env.KERNEL_LOC_DIR }}
         run: |
-          git clone --recursive --branch ${{ env.KERNEL_BRANCH }} \
-            ${{ env.KERNEL_REPO }} ${{ env.KERNEL_NAME }} --depth=1
+          git config --global http.postBuffer 524288000
+          git config --global core.compression 0
+          git config --global http.version HTTP/1.1
+      
+          for i in {1..5}; do
+            git clone \
+              --depth=1 \
+              --filter=blob:none \
+              --single-branch \
+              --branch ${{ env.KERNEL_BRANCH }} \
+              ${{ env.KERNEL_REPO }} \
+              ${{ env.KERNEL_NAME }} && break
+      
+            echo "Retry $i/5"
+            rm -rf ${{ env.KERNEL_NAME }}
+            sleep 30
+          done
 
       - name: "📥 Initialize AOSP repo and toolchains"
         working-directory: ${{ env.WORK_DIR }}
