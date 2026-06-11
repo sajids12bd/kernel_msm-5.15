@@ -316,6 +316,13 @@ jobs:
           with open('drivers/input/input.c', 'w') as f:
               f.write(content)
           PYEOF
+          echo "🔍 Verifying all hooks were added..."
+          grep -l "ksu_handle_setresuid" kernel/sys.c && echo "✔ setresuid hook present" || echo "❌ setresuid hook MISSING"
+          grep -l "ksu_handle_sys_reboot" kernel/reboot.c kernel/sys.c 2>/dev/null && echo "✔ reboot hook present" || echo "❌ reboot hook MISSING"
+          grep -l "ksu_handle_input_handle_event" drivers/input/input.c && echo "✔ input hook present" || echo "❌ input hook MISSING"
+          grep -l "ksu_handle_newfstat_ret" fs/stat.c && echo "✔ newfstat hook present" || echo "❌ newfstat hook MISSING"
+          grep -l "ksu_handle_fstat64_ret" fs/stat.c && echo "✔ fstat64 hook present" || echo "❌ fstat64 hook MISSING"
+
 
 
           # Copy SUSFS source files
@@ -485,8 +492,8 @@ jobs:
           set -e
 
           # Clone AnyKernel3
-          git clone --depth=1 https://github.com/topnotchfreaks/AnyKernel3 -b YASK AnyKernel3
-
+          curl -LSs "https://raw.githubusercontent.com/sajids12bd/AnyKernel3/master/anykernel.sh" -o AnyKernel3/anykernel.sh
+          
           # Copy kernel images
           find ./artifacts -name "Image.*" -exec cp {} AnyKernel3/ \;
 
