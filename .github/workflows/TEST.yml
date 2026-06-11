@@ -493,58 +493,16 @@ jobs:
 
           # Clone AnyKernel3
           git clone --depth=1 https://github.com/sajids12bd/AnyKernel3 -b master AnyKernel3
-          
+
           # Copy kernel images
           find ./artifacts -name "Image.*" -exec cp {} AnyKernel3/ \;
 
-          # Create banner
-          cat > AnyKernel3/banner << 'EOF'
-          ╔═════════════════════════════════════════════════════╗
-          ║                                                     ║
-          ║          ██╗   ██╗ █████╗ ███████╗██╗  ██╗          ║
-          ║          ╚██╗ ██╔╝██╔══██╗██╔════╝██║ ██╔╝          ║
-          ║           ╚████╔╝ ███████║███████╗█████╔╝           ║
-          ║            ╚██╔╝  ██╔══██║╚════██║██╔═██╗           ║
-          ║             ██║   ██║  ██║███████║██║  ██╗          ║
-          ║             ╚═╝   ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝          ║
-          ║                                                     ║
-          ║               Yet Another Stock Kernel              ║
-          ║                   by @belowzeroiq                   ║
-          ║                                                     ║
-          ║              Powered by Github Actions              ║
-          ║                                                     ║
-          ╠═════════════════════════════════════════════════════╣
-          ║                                                     ║
-          ║     Features:                                       ║
-          ║     • Full LTO + -O2 Optimization                   ║
-          ║     • Extra TCP Congestion (BBR, Westwood)          ║
-          ║     • AOSP clang-r547379                            ║
-          ║     • Non-KSU & Wild-KSU support                    ║
-          ║     • SUSFS integration (for KSU builds)            ║
-          ║     • Baseband-Guard Support                        ║
-          ║     • Metamodule Support                            ║
-          ║                                                     ║
-          ║     Info:                                           ║
-          ║     • Supported Android: 13-16                      ║
-          ║     • Supported Device:                             ║
-          ║       Redmi Note 12 4G/NFC                          ║
-          ║       Redmi Note 13 4G/NFC                          ║
-          ║       Redmi Pad SE                                  ║
-          ║                                                     ║
-          ║     Please ensure:                                  ║
-          ║     • Your device is compatible                     ║
-          ║     • You have a backup of your current kernel      ║
-          ║                                                     ║
-          ╚═════════════════════════════════════════════════════╝
-          Installing YASK Kernel...
-          EOF
-
           # Create ZIP
-          ZIP_NAME="Anykernel3_YASK-WildKSU-AIO-FULL_$(date +'%Y-%m-%d').zip"
+          ZIP_NAME="Anykernel3_YASK-ReSukiSU-CLO_$(date +'%Y-%m-%d').zip"
           cd AnyKernel3
           zip -r9 "../$ZIP_NAME" * -x .git/*
           cd ..
-          
+
           echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
           echo "✅ Package created: $ZIP_NAME"
 
@@ -568,7 +526,7 @@ jobs:
           • Kernel: \`Linux 5.15\`
           • Android: \`13-16\`
           • Base: \`GKI & CLO\`
-          • KSU: \`Wild KSU (canary)\`
+          • KSU: \`ReSukiSU\`
           • SUSFS: \`Enabled (GKI A13-5.15)\`
           • LTO: \`Full\`
           • Optimization: \`-O2\`
@@ -586,6 +544,7 @@ jobs:
           • KernelSU-Next
           • Rissu-KSU
           • KowSU
+          • ReSukiSU
 
           🕐 *Build Date:* $(date '+%Y-%m-%d %H:%M:%S UTC')
           📦 *Package:* \`${{ env.ZIP_NAME }}\`
@@ -602,21 +561,21 @@ jobs:
 
           else
             FAILURE_MSG="❌ *YASK Kernel Build Failed*
-            
+
           📦 *Build Information:*
           • Kernel: \`Linux 5.15\`
           • Android: \`13-16\`
           • Base: \`GKI & CLO\`
-          • KSU: \`Wild KSU (canary)\`
+          • KSU: \`ReSukiSU\`
           • SUSFS: \`Enabled (GKI A13-5.15)\`
           • LTO: \`Full\`
           • Optimization: \`-O2\`
           • BBG: \`Enabled\`
-          
+
           🕐 *Failed at:* $(date '+%Y-%m-%d %H:%M:%S UTC')
 
           🔍 Check the [workflow logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details."
-           
+
             curl -s -X POST \
               -d chat_id=${{ secrets.TELEGRAM_CHANNEL_ID }} \
               -d photo="${BANNER_URL}" \
