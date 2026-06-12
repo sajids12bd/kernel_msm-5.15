@@ -350,7 +350,7 @@ jobs:
           if grep -q "YASK_PT_DECL" "$FILE"; then
             echo "✔ already patched"
           else
-            sed -i 's/struct user_struct \*new_user;/struct user_struct *new_user;\n    struct task_struct *p, *t; \/* YASK_PT_DECL *\//' "$FILE"
+            sed -i 's/struct user_struct \*new_user;/struct user_struct *new_user;\n    struct task_struct *p = current, *t; \/* YASK_PT_DECL *\//' "$FILE"
           fi
 
           grep -n "YASK_PT_DECL" "$FILE" || { echo "❌ patch failed!"; exit 1; }
