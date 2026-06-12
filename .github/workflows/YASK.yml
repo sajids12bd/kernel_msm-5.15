@@ -280,47 +280,32 @@ jobs:
         working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
           INIT_C="drivers/kernelsu/core/init.c"
-          
-          echo "🔍 Checking for ksu_late_loaded in $INIT_C..."
-          
+
+          if [ ! -f "$INIT_C" ]; then
+            echo "⚠️ $INIT_C not found, skipping"
+            exit 0
+          fi
+
           if grep -q "ksu_late_loaded" "$INIT_C"; then
-            echo "✔ Found ksu_late_loaded usage"
-            
-            if ! grep -q "bool ksu_late_loaded" "$INIT_C"; then
-              echo "⚠️ Declaration missing, adding it..."
-              
-              # Find the first #include line and add declaration after it
-              LINE_NUM=$(grep -n "^#include" "$INIT_C" | head -1 | cut -d: -f1)
-              
-              if [ -n "$LINE_NUM" ]; then
-                # Insert after the last #include block
-                LAST_INCLUDE=$(grep -n "^#include" "$INIT_C" | tail -1 | cut -d: -f1)
-                sed -i "${LAST_INCLUDE}a\\
-            \\
-            // KSU late load flag\\
-            bool ksu_late_loaded = false;" "$INIT_C"
-                echo "✔ Added ksu_late_loaded declaration after includes"
-              else
-                # Fallback: prepend to file
-                echo "bool ksu_late_loaded = false;" > /tmp/ksu_fix.c
-                cat "$INIT_C" >> /tmp/ksu_fix.c
-                mv /tmp/ksu_fix.c "$INIT_C"
-                echo "✔ Prepended ksu_late_loaded declaration"
+            if ! grep -q "YASK_KSU_LATE_LOADED_DEF" "$INIT_C"; then
+              echo "⚠️ Adding global ksu_late_loaded definition..."
+              LAST_INCLUDE=$(grep -n "^#include" "$INIT_C" | tail -1 | cut -d: -f1)
+              if [ -z "$LAST_INCLUDE" ]; then
+                LAST_INCLUDE=0
               fi
-              
-              # Verify
-              if grep -q "bool ksu_late_loaded" "$INIT_C"; then
-                echo "✅ Declaration verified"
-              else
-                echo "❌ Declaration failed!"
-                exit 1
-              fi
+              sed -i "${LAST_INCLUDE}a\\
+          \\
+          /* YASK_KSU_LATE_LOADED_DEF */\\
+          bool ksu_late_loaded = false;" "$INIT_C"
             else
-              echo "✔ ksu_late_loaded already declared"
+              echo "✔ ksu_late_loaded definition already injected"
             fi
           else
             echo "⚠️ ksu_late_loaded not found in $INIT_C — may not be needed"
           fi
+
+          # sanity check
+          grep -n "bool ksu_late_loaded" "$INIT_C" || { echo "❌ Definition not present!"; exit 1; }
     
       - name: "🔨 Build kernel"
         working-directory: ${{ env.WORK_DIR }}
