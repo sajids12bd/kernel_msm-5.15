@@ -354,6 +354,40 @@ jobs:
           fi
 
           grep -n "YASK_PT_DECL" "$FILE" || { echo "❌ patch failed!"; exit 1; }
+
+
+      - name: "🔧 Fix dispatch.c SUSFS constants"
+        if: matrix.kernel.enable_ksu == true
+        working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
+        run: |
+          DISPATCH_C="drivers/kernelsu/supercall/dispatch.c"
+
+          echo "--- susfs_def.h present? ---"
+          ls -la include/linux/susfs_def.h 2>/dev/null || echo "MISSING susfs_def.h"
+
+          echo "--- dispatch.c current includes ---"
+          head -20 "$DISPATCH_C"
+
+          if [ -f "$DISPATCH_C" ]; then
+            if ! grep -q '#include <linux/susfs_def.h>' "$DISPATCH_C"; then
+              echo "⚠️ Adding susfs_def.h include to dispatch.c"
+              ANCHOR=$(grep -n '^#include' "$DISPATCH_C" | tail -1 | cut -d: -f1)
+              sed -i "${ANCHOR}a #include <linux/susfs_def.h>" "$DISPATCH_C"
+            else
+              echo "✔ susfs_def.h already included"
+            fi
+
+            if ! grep -q '#include <linux/susfs.h>' "$DISPATCH_C"; then
+              echo "⚠️ Adding susfs.h include to dispatch.c"
+              ANCHOR=$(grep -n '^#include' "$DISPATCH_C" | tail -1 | cut -d: -f1)
+              sed -i "${ANCHOR}a #include <linux/susfs.h>" "$DISPATCH_C"
+            else
+              echo "✔ susfs.h already included"
+            fi
+          fi
+
+          echo "--- grep for SUSFS_MAGIC definition ---"
+          grep -rn "define SUSFS_MAGIC\|define CMD_SUSFS_ADD_SUS_PATH\b" include/linux/ || echo "❌ NOT FOUND anywhere in include/linux/"
           
     
       - name: "🔨 Build kernel"
