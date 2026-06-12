@@ -1,4 +1,4 @@
-name: "Build SUkiSU"
+name: "Build Sukisu"
 
 env:
   OUT_DIR: "out"
