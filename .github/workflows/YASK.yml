@@ -329,6 +329,14 @@ jobs:
           sed -n '150,195p' "$FILE"
           echo "--- Check .rej files ---"
           find drivers/kernelsu -name "*.rej" -exec sh -c 'echo "=== {} ==="; cat "{}"' \;
+
+      - name: "🔍 Debug app_profile.c function start"
+        if: matrix.kernel.enable_ksu == true
+        working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
+        run: |
+          FILE="drivers/kernelsu/policy/app_profile.c"
+          sed -n '100,182p' "$FILE"
+          
     
       - name: "🔨 Build kernel"
         working-directory: ${{ env.WORK_DIR }}
