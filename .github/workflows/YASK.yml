@@ -306,6 +306,11 @@ jobs:
 
           # sanity check
           grep -n "bool ksu_late_loaded" "$INIT_C" || { echo "❌ Definition not present!"; exit 1; }
+
+      - name: "🔍 Debug ksu_late_loaded occurrences"
+        if: matrix.kernel.enable_ksu == true
+        working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
+        run: grep -rn "ksu_late_loaded" drivers/kernelsu/ include/ || true
     
       - name: "🔨 Build kernel"
         working-directory: ${{ env.WORK_DIR }}
