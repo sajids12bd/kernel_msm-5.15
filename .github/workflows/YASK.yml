@@ -319,6 +319,16 @@ jobs:
         if: matrix.kernel.enable_ksu == true
         working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: grep -rn "ksu_late_loaded" drivers/kernelsu/ include/ || true
+
+      - name: "🔍 Debug app_profile.c context"
+        if: matrix.kernel.enable_ksu == true
+        working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
+        run: |
+          FILE="drivers/kernelsu/policy/app_profile.c"
+          echo "--- Lines 150-195 ---"
+          sed -n '150,195p' "$FILE"
+          echo "--- Check .rej files ---"
+          find drivers/kernelsu -name "*.rej" -exec sh -c 'echo "=== {} ==="; cat "{}"' \;
     
       - name: "🔨 Build kernel"
         working-directory: ${{ env.WORK_DIR }}
