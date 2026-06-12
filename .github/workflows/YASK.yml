@@ -336,6 +336,24 @@ jobs:
         run: |
           FILE="drivers/kernelsu/policy/app_profile.c"
           sed -n '100,182p' "$FILE"
+
+      - name: "🔧 Fix missing p,t declaration in app_profile.c"
+        if: matrix.kernel.enable_ksu == true
+        working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
+        run: |
+          FILE="drivers/kernelsu/policy/app_profile.c"
+          if [ ! -f "$FILE" ]; then
+            echo "⚠️ $FILE not found, skipping"
+            exit 0
+          fi
+
+          if grep -q "YASK_PT_DECL" "$FILE"; then
+            echo "✔ already patched"
+          else
+            sed -i 's/struct user_struct \*new_user;/struct user_struct *new_user;\n    struct task_struct *p, *t; \/* YASK_PT_DECL *\//' "$FILE"
+          fi
+
+          grep -n "YASK_PT_DECL" "$FILE" || { echo "❌ patch failed!"; exit 1; }
           
     
       - name: "🔨 Build kernel"
