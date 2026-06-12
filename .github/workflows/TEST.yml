@@ -143,38 +143,38 @@ jobs:
           echo "CONFIG_BBG=y" >> arch/arm64/configs/${{ env.DEFCONFIG_NAME }}
           sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/selinux/selinux,baseband_guard/ } }' security/Kconfig
 
-      - name: "🔧 Setup ReSukiSU with SUSFS"
+      - name: "🔧 Setup SukiSU-Ultra with SUSFS"
         if: matrix.kernel.enable_ksu == true
         working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
           set -e
 
           # Clean existing installations
-          rm -rf ./KernelSU ./drivers/kernelsu ./ReSukiSU
+          rm -rf ./KernelSU ./drivers/kernelsu ./SukiSU-Ultra
 
-          echo "📦 Installing ReSukiSU..."
-          curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash
+          echo "📦 Installing SukiSU-Ultra..."
+          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s main
           
           # setup.sh clones as 'KernelSU' — rename it
-          if [ -d "KernelSU" ] && [ ! -d "ReSukiSU" ]; then
-            mv KernelSU ReSukiSU
-            echo "✔ Renamed KernelSU → ReSukiSU"
+          if [ -d "KernelSU" ] && [ ! -d "SukiSU-Ultra" ]; then
+            mv KernelSU SukiSU-Ultra
+            echo "✔ Renamed KernelSU → SukiSU-Ultra"
           fi
 
-          [ -d "ReSukiSU" ] || { echo "❌ ReSukiSU not found!"; exit 1; }
-          echo "✔ ReSukiSU ready"
+          [ -d "SukiSU-Ultra" ] || { echo "❌ SukiSU-Ultra not found!"; exit 1; }
+          echo "✔ SukiSU-Ultra ready"
 
-          # Verify ReSukiSU kernel entry point
-          INIT_C="ReSukiSU/kernel/core/init.c"
+          # Verify SukiSU-Ultra kernel entry point
+          INIT_C="SukiSU-Ultra/kernel/core/init.c"
           [ -f "$INIT_C" ] || {
-            echo "❌ ERROR: $INIT_C not found! Listing ReSukiSU/kernel/:"
-            ls -la ReSukiSU/kernel/ || true
+            echo "❌ ERROR: $INIT_C not found! Listing SukiSU-Ultra/kernel/:"
+            ls -la SukiSU-Ultra/kernel/ || true
             exit 1
           }
           echo "✔ Found entry point: $INIT_C"
 
           # Fix drivers/kernelsu symlink — always force recreate with absolute path
-          KERNEL_SRC_ABS="$(realpath ReSukiSU/kernel)"
+          KERNEL_SRC_ABS="$(realpath SukiSU-Ultra/kernel)"
           rm -rf drivers/kernelsu
           ln -sf "$KERNEL_SRC_ABS" drivers/kernelsu
           echo "✔ Symlink: drivers/kernelsu → $(readlink -f drivers/kernelsu)"
@@ -190,10 +190,10 @@ jobs:
 
           # Fix Kconfig recursive dependency
           echo "🔧 Fixing Kconfig recursive dependency..."
-          KCONFIG_FILE="ReSukiSU/kernel/Kconfig"
+          KCONFIG_FILE="SukiSU-Ultra/kernel/Kconfig"
           if [ ! -f "$KCONFIG_FILE" ]; then
-            echo "⚠️ Kconfig not at ReSukiSU/kernel/Kconfig, searching..."
-            KCONFIG_FILE="$(find ReSukiSU -name 'Kconfig' | head -1)"
+            echo "⚠️ Kconfig not at SukiSU-Ultra/kernel/Kconfig, searching..."
+            KCONFIG_FILE="$(find SukiSU-Ultra -name 'Kconfig' | head -1)"
           fi
 
           if [ -f "$KCONFIG_FILE" ]; then
@@ -203,8 +203,8 @@ jobs:
             echo "🔍 Verifying fix:"
             grep -n "KSU_SUSFS\|KSU_MANUAL_HOOK" "$KCONFIG_FILE" | head -20 || true
           else
-            echo "❌ Kconfig not found anywhere in ReSukiSU!"
-            find ReSukiSU -name "Kconfig" | head -10
+            echo "❌ Kconfig not found anywhere in SukiSU-Ultra!"
+            find SukiSU-Ultra -name "Kconfig" | head -10
             exit 1
           fi
 
@@ -221,8 +221,8 @@ jobs:
             echo "⚠️ SUSFS patch not found: $SUSFS_PATCH"
           fi
 
-          # Add all required ReSukiSU hooks
-          echo "🔧 Adding all required ReSukiSU hooks..."
+          # Add all required SukiSU-Ultra hooks
+          echo "🔧 Adding all required SukiSU-Ultra hooks..."
           python3 << 'PYEOF'
           import os
           
@@ -343,7 +343,7 @@ jobs:
 
             # Fix ksu_late_loaded undeclared identifier
             echo "🔧 Fixing ksu_late_loaded declaration..."
-            INIT_C="ReSukiSU/kernel/core/init.c"
+            INIT_C="SukiSU-Ultra/kernel/core/init.c"
             if grep -q "ksu_late_loaded" "$INIT_C"; then
               if ! grep -q "bool ksu_late_loaded" "$INIT_C"; then
                 # Insert declaration at the top of the file after includes
@@ -395,7 +395,7 @@ jobs:
 
           # Cleanup
           rm -rf susfs4ksu
-          echo "🎉 ReSukiSU with SUSFS fully integrated!"
+          echo "🎉 SukiSU-Ultra with SUSFS fully integrated!"
 
       - name: "⚙️ Setup basic configs"
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
@@ -429,14 +429,14 @@ jobs:
           echo 'KBUILD_CFLAGS += -Wno-implicit-function-declaration' >> Makefile
           echo "Custom Makefile line added successfully"
 
-      - name: "Debug ReSukiSU hooks"
+      - name: "Debug SukiSU-Ultra hooks"
         working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
           echo "===== MANUAL HOOK SETTINGS ====="
-          grep -R "KSU_MANUAL_HOOK" ReSukiSU 2>/dev/null || true
+          grep -R "KSU_MANUAL_HOOK" SukiSU-Ultra 2>/dev/null || true
       
           echo "===== MISSING HOOK ====="
-          grep -R "ksu_handle_newfstat_ret" ReSukiSU . -n || true
+          grep -R "ksu_handle_newfstat_ret" SukiSU-Ultra . -n || true
       
           echo "===== STAT FUNCTIONS ====="
           grep -R "newfstat" fs include kernel -n || true
@@ -449,11 +449,11 @@ jobs:
         if: matrix.kernel.enable_ksu == true
         working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
-          echo "=== All required hooks by ReSukiSU ==="
-          grep -r "You lost" ReSukiSU/kernel/tools/ || true
+          echo "=== All required hooks by SukiSU-Ultra ==="
+          grep -r "You lost" SukiSU-Ultra/kernel/tools/ || true
           echo ""
           echo "=== All hooks being checked ==="
-          grep -r "check_ksu_hook" ReSukiSU/kernel/tools/manual_hook_check.mk || true
+          grep -r "check_ksu_hook" SukiSU-Ultra/kernel/tools/manual_hook_check.mk || true
           echo ""
           echo "=== Hooks present in kernel source ==="
           grep -r "ksu_handle_" fs/ --include="*.c" -l || true
@@ -498,7 +498,7 @@ jobs:
           find ./artifacts -name "Image.*" -exec cp {} AnyKernel3/ \;
 
           # Create ZIP
-          ZIP_NAME="Anykernel3_YASK-ReSukiSU-CLO_$(date +'%Y-%m-%d').zip"
+          ZIP_NAME="Anykernel3_YASK-SukiSU-Ultra-CLO_$(date +'%Y-%m-%d').zip"
           cd AnyKernel3
           zip -r9 "../$ZIP_NAME" * -x .git/*
           cd ..
@@ -526,7 +526,7 @@ jobs:
           • Kernel: \`Linux 5.15\`
           • Android: \`13-16\`
           • Base: \`GKI & CLO\`
-          • KSU: \`ReSukiSU\`
+          • KSU: \`SukiSU-Ultra\`
           • SUSFS: \`Enabled (GKI A13-5.15)\`
           • LTO: \`Full\`
           • Optimization: \`-O2\`
@@ -544,7 +544,7 @@ jobs:
           • KernelSU-Next
           • Rissu-KSU
           • KowSU
-          • ReSukiSU
+          • SukiSU-Ultra
 
           🕐 *Build Date:* $(date '+%Y-%m-%d %H:%M:%S UTC')
           📦 *Package:* \`${{ env.ZIP_NAME }}\`
@@ -566,7 +566,7 @@ jobs:
           • Kernel: \`Linux 5.15\`
           • Android: \`13-16\`
           • Base: \`GKI & CLO\`
-          • KSU: \`ReSukiSU\`
+          • KSU: \`SukiSU-Ultra\`
           • SUSFS: \`Enabled (GKI A13-5.15)\`
           • LTO: \`Full\`
           • Optimization: \`-O2\`
