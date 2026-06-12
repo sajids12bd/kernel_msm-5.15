@@ -307,6 +307,18 @@ jobs:
           # sanity check
           grep -n "bool ksu_late_loaded" "$INIT_C" || { echo "❌ Definition not present!"; exit 1; }
 
+      - name: "🔍 Debug init.c context"
+        if: matrix.kernel.enable_ksu == true
+        working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
+        run: |
+          INIT_C="drivers/kernelsu/core/init.c"
+          echo "--- Lines 1-60 ---"
+          sed -n '1,60p' "$INIT_C"
+          echo "--- Lines 120-140 ---"
+          sed -n '120,140p' "$INIT_C"
+          echo "--- Lines 180-195 ---"
+          sed -n '180,195p' "$INIT_C"
+
       - name: "🔍 Debug ksu_late_loaded occurrences"
         if: matrix.kernel.enable_ksu == true
         working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
