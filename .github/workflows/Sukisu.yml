@@ -440,14 +440,15 @@ jobs:
           cat drivers/kernelsu/Makefile
 
 
-      - name: "🔍 Find real obj-y rules"
+      - name: "🔍 Show full Kbuild kernelsu-y source list"
         if: matrix.kernel.enable_ksu == true
         working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
-          find -L drivers/kernelsu -name "Makefile" -o -name "Kbuild" | while read f; do
-            echo "=== $f ==="
-            grep -n "obj-y\|obj-\$(CONFIG\|wildcard" "$f" || echo "(no obj-y/wildcard lines)"
-          done
+          cat drivers/kernelsu/Kbuild
+          echo "--- .orig version if exists ---"
+          find -L drivers/kernelsu -name "Kbuild.orig" -exec cat {} \;
+          echo "--- .rej version if exists ---"
+          find -L drivers/kernelsu -name "Kbuild.rej" -exec cat {} \;
           
     
       - name: "🔨 Build kernel"
