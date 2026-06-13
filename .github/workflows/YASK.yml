@@ -388,6 +388,18 @@ jobs:
 
           echo "--- grep for SUSFS_MAGIC definition ---"
           grep -rn "define SUSFS_MAGIC\|define CMD_SUSFS_ADD_SUS_PATH\b" include/linux/ || echo "❌ NOT FOUND anywhere in include/linux/"
+
+
+      - name: "🔍 Debug susfs_def.h content and dispatch.c includes"
+        if: matrix.kernel.enable_ksu == true
+        working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
+        run: |
+          echo "--- susfs_def.h (first 30 lines) ---"
+          head -30 include/linux/susfs_def.h
+          echo "--- dispatch.c includes after fix ---"
+          head -25 drivers/kernelsu/supercall/dispatch.c
+          echo "--- susfs.h includes ---"
+          head -15 include/linux/susfs.h
           
     
       - name: "🔨 Build kernel"
