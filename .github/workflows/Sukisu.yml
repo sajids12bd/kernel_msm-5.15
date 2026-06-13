@@ -389,6 +389,16 @@ jobs:
           echo "--- grep for SUSFS_MAGIC definition ---"
           grep -rn "define SUSFS_MAGIC\|define CMD_SUSFS_ADD_SUS_PATH\b" include/linux/ || echo "❌ NOT FOUND anywhere in include/linux/"
 
+      - name: "🔍 Verify susfs includes in dispatch.c"
+        if: matrix.kernel.enable_ksu == true
+        working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
+        run: |
+          echo "--- grep susfs includes in dispatch.c ---"
+          grep -n "susfs" drivers/kernelsu/supercall/dispatch.c
+          echo "--- CONFIG_KSU_SUSFS in defconfig ---"
+          grep "CONFIG_KSU_SUSFS" arch/arm64/configs/gki_defconfig
+          echo "--- check for #ifdef CONFIG_KSU_SUSFS around SUSFS_MAGIC usage ---"
+          sed -n '440,460p' drivers/kernelsu/supercall/dispatch.c
 
       - name: "🔍 Debug susfs_def.h content and dispatch.c includes"
         if: matrix.kernel.enable_ksu == true
