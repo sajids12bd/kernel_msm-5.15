@@ -410,6 +410,24 @@ jobs:
           head -25 drivers/kernelsu/supercall/dispatch.c
           echo "--- susfs.h includes ---"
           head -15 include/linux/susfs.h
+
+      - name: "🧹 Clear ccache for kernelsu"
+        if: matrix.kernel.enable_ksu == true
+        run: |
+          if command -v ccache >/dev/null 2>&1; then
+            ccache -z
+            echo "CCACHE stats reset"
+          fi
+          # Some build.sh scripts set CCACHE_DIR via env; clear it if present
+          if [ -n "$CCACHE_DIR" ] && [ -d "$CCACHE_DIR" ]; then
+            rm -rf "$CCACHE_DIR"
+            echo "Cleared CCACHE_DIR: $CCACHE_DIR"
+          fi
+          rm -rf ~/.ccache
+
+      - name: "🧹 Clean build output directory"
+        working-directory: ${{ env.WORK_DIR }}
+        run: rm -rf out
           
     
       - name: "🔨 Build kernel"
