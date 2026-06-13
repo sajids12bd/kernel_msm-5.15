@@ -422,6 +422,22 @@ jobs:
           echo "File: $FILE"
           md5sum "$FILE"
           sed -n '25,30p' "$FILE"
+
+
+      - name: "🔍 Debug missing kernelsu source files"
+        if: matrix.kernel.enable_ksu == true
+        working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
+        run: |
+          echo "--- drivers/kernelsu top-level structure ---"
+          find drivers/kernelsu -maxdepth 2 -type d | sort
+          echo "--- search for ksu_syscall_hook_init definition ---"
+          grep -rn "ksu_syscall_hook_init\b" drivers/kernelsu/ | grep -v "\.h:"
+          echo "--- search for ksu_init_symbol_resolver definition ---"
+          grep -rn "ksu_init_symbol_resolver\b" drivers/kernelsu/ | grep -v "\.h:"
+          echo "--- search for find_kernel_symbol_exact definition ---"
+          grep -rn "find_kernel_symbol_exact\b" drivers/kernelsu/ | grep -v "\.h:"
+          echo "--- drivers/kernelsu/Makefile content ---"
+          cat drivers/kernelsu/Makefile
           
     
       - name: "🔨 Build kernel"
