@@ -428,6 +428,14 @@ jobs:
       - name: "🧹 Clean build output directory"
         working-directory: ${{ env.WORK_DIR }}
         run: rm -rf out
+
+      - name: "🔍 Verify dispatch.c content right before build"
+        if: matrix.kernel.enable_ksu == true
+        run: |
+          FILE="${{ env.WORK_DIR }}/${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}/drivers/kernelsu/supercall/dispatch.c"
+          echo "File: $FILE"
+          md5sum "$FILE"
+          sed -n '25,30p' "$FILE"
           
     
       - name: "🔨 Build kernel"
