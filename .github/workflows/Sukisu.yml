@@ -440,15 +440,27 @@ jobs:
           cat drivers/kernelsu/Makefile
 
 
-      - name: "🔍 Show full Kbuild kernelsu-y source list"
+      - name: "🔧 Add missing kernelsu-objs to Kbuild"
         if: matrix.kernel.enable_ksu == true
         working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
-          cat drivers/kernelsu/Kbuild
-          echo "--- .orig version if exists ---"
-          find -L drivers/kernelsu -name "Kbuild.orig" -exec cat {} \;
-          echo "--- .rej version if exists ---"
-          find -L drivers/kernelsu -name "Kbuild.rej" -exec cat {} \;
+          KBUILD="drivers/kernelsu/Kbuild"
+
+          if grep -q "YASK_EXTRA_OBJS" "$KBUILD"; then
+            echo "✔ already patched"
+          else
+            sed -i '/^kernelsu-objs += hook\/setuid_hook.o/a\
+            \
+            # YASK_EXTRA_OBJS\
+            kernelsu-objs += infra/symbol_resolver.o\
+            kernelsu-objs += hook/syscall_hook_manager.o\
+            kernelsu-objs += hook/lsm_hook.o\
+            kernelsu-objs += hook/syscall_event_bridge.o\
+            kernelsu-objs += hook/tp_marker.o\
+            kernelsu-objs += $(if $(filter arm64,$(ARCH)),hook/arm64/syscall_hook.o hook/arm64/patch_memory.o,hook/x86_64/syscall_hook.o hook/x86_64/patch_memory.o)' "$KBUILD"
+          fi
+
+          grep -n "YASK_EXTRA_OBJS" -A6 "$KBUILD" || { echo "❌ patch failed!"; exit 1; }
           
     
       - name: "🔨 Build kernel"
