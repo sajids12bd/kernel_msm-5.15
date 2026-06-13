@@ -440,22 +440,15 @@ jobs:
           cat drivers/kernelsu/Makefile
 
 
-      - name: "🔍 Debug kernelsu Kbuild rules"
+      - name: "🔍 Debug full kernelsu Makefile obj-y rules"
         if: matrix.kernel.enable_ksu == true
         working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
-          echo "--- find Kbuild files in drivers/kernelsu ---"
-          find drivers/kernelsu -name "Kbuild" -o -name "Makefile.kbuild" 2>/dev/null
-          echo "--- rest of drivers/kernelsu/Makefile (full) ---"
-          cat -A drivers/kernelsu/Makefile | tail -40
-          echo "--- check drivers/Makefile reference to kernelsu ---"
-          grep -n "kernelsu" drivers/Makefile
-          echo "--- check drivers/Kconfig reference to kernelsu ---"
-          grep -n "kernelsu" drivers/Kconfig
-          echo "--- list ALL subdirs under drivers/kernelsu ---"
-          find drivers/kernelsu -maxdepth 1 -type d
-          echo "--- search for obj-y or obj-\$(CONFIG_KSU in any Makefile under kernelsu ---"
-          grep -rn "obj-y\|obj-\$(CONFIG_KSU" drivers/kernelsu/ --include=Makefile
+          echo "--- FULL drivers/kernelsu/Makefile ---"
+          cat drivers/kernelsu/Makefile
+          echo "--- grep obj-y across kernelsu (follow symlinks with -L) ---"
+          grep -rn "obj-y\|obj-\$(CONFIG" -L drivers/kernelsu/ 2>/dev/null
+          find -L drivers/kernelsu -name "Makefile" -exec sh -c 'echo "=== {} ==="; cat "{}"' \;
           
     
       - name: "🔨 Build kernel"
