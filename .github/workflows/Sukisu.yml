@@ -1,4 +1,4 @@
-name: "Build Sukisu"
+name: "Build SukiSU-Ultra"
 
 env:
   OUT_DIR: "out"
@@ -9,7 +9,7 @@ on:
   schedule:
     - cron: '0 0 * * 0'
   workflow_dispatch:
-        
+
 jobs:
   build-kernels:
     name: "🐎 Build YASK ${{ matrix.kernel.name }} kernel"
@@ -30,9 +30,8 @@ jobs:
             extra_patches:
               - "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-gki-fixup.patch"
               - "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-scripts-sign-builds.patch"
-              - "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-scripts-Don-t-append-and-dirty-to-localversion.patch"
               - "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-scripts-do-not-ship-full-auto_localversion.patch"
-        
+
     env:
       KERNEL_LOC_DIR: ${{ matrix.kernel.dir }}
       KERNEL_NAME: ${{ matrix.kernel.repo_name }}
@@ -49,53 +48,61 @@ jobs:
           mkdir -p ${{ env.KERNEL_LOC_DIR }}
           echo "BUILD_TIME=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
           sudo apt-get update -qq
-          sudo apt-get install -y repo rsync aria2
+          sudo apt-get install -y repo rsync aria2 pahole dwarves
 
       - name: 📐 Setup SWAP 10GB
         uses: pierotofy/set-swap-space@master
         with:
-            swap-size-gb: 10
-            
+          swap-size-gb: 10
+
       - name: 📐 Tune Swap
         run: |
-            echo "vm.swappiness=80" | sudo tee -a /etc/sysctl.conf
-            sudo sysctl -p
+          echo "vm.swappiness=80" | sudo tee -a /etc/sysctl.conf
+          sudo sysctl -p
 
       - name: "🌟 Clone kernel source"
         working-directory: ./${{ env.KERNEL_LOC_DIR }}
         run: |
-          git clone --recursive --branch ${{ env.KERNEL_BRANCH }} \
-            ${{ env.KERNEL_REPO }} ${{ env.KERNEL_NAME }} --depth=1
+          git config --global http.postBuffer 524288000
+          git config --global core.compression 0
+          git config --global http.version HTTP/1.1
+
+          for i in {1..5}; do
+            git clone \
+              --depth=1 \
+              --filter=blob:none \
+              --single-branch \
+              --branch ${{ env.KERNEL_BRANCH }} \
+              ${{ env.KERNEL_REPO }} \
+              ${{ env.KERNEL_NAME }} && break
+
+            echo "Retry $i/5"
+            rm -rf ${{ env.KERNEL_NAME }}
+            sleep 30
+          done
 
       - name: "📥 Initialize AOSP repo and toolchains"
         working-directory: ${{ env.WORK_DIR }}
         run: |
-          # Initialize AOSP repo
           repo init -u https://android.googlesource.com/kernel/manifest -b common-android13-5.15-lts --depth=1
           repo sync --optimized-fetch --prune -j8
-          
-          # Clean up existing repo and common directories
           rm -rf .repo
           rm -rf common
 
-          # Download and setup custom clang toolchain
           aria2c -x 16 -s 16 -o prebuilts/clang/host/linux-x86/clang-r547379.tar.gz "https://github.com/topnotchfreaks/clang/releases/download/v1.0.0/clang-r547379.tar.gz"
           mkdir -p prebuilts/clang/host/linux-x86/clang-r547379
           tar -xzf prebuilts/clang/host/linux-x86/clang-r547379.tar.gz -C prebuilts/clang/host/linux-x86/clang-r547379
           rm -rf prebuilts/clang/host/linux-x86/clang-r547379.tar.gz
 
-          # Remove unused clang for more space
           rm -rf prebuilts/clang/host/linux-x86/clang-3289846
           rm -rf prebuilts/clang/host/linux-x86/clang-r450784e
           rm -rf prebuilts/clang/host/linux-x86/clang-stable
-          
-          # Update build config constants
+
           sed -i \
            -e 's/^BRANCH=.*/BRANCH=android13-5.15/' \
            -e 's/^CLANG_VERSION=.*/CLANG_VERSION=r547379/' \
            ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}/build.config.constants
-          
-          # Remove defconfig check (if exists)
+
           sed -i '/^POST_DEFCONFIG_CMDS="check_defconfig"/d' ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}/build.config.gki || true
 
       - name: "🧩 Configure kernel & patches"
@@ -105,7 +112,6 @@ jobs:
           echo "CONFIG_LOCALVERSION=\"${{ env.LOCAL_VERSION }}-${{ env.BUILD_TIME }}\"" >> "$CONFIG_FILE"
           echo "CONFIG_LOCALVERSION_AUTO=n" >> "$CONFIG_FILE"
 
-          # Helper
           apply_patch() {
             local url="$1"
             local file=$(basename "$url")
@@ -114,12 +120,11 @@ jobs:
             rm -f "$file"
           }
 
-          # Apply patches
           echo '${{ toJSON(matrix.kernel.extra_patches) }}' | jq -r '.[]' | while read p; do
             [ -n "$p" ] && apply_patch "$p"
           done
 
-      - name: "🔧 Add BBG Support (KSU variant only)"
+      - name: "🔧 Add BBG Support"
         if: matrix.kernel.enable_ksu == true
         working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
@@ -134,13 +139,11 @@ jobs:
         run: |
           set -e
 
-          # Clean existing installations
           rm -rf ./KernelSU ./drivers/kernelsu ./SukiSU-Ultra
 
           echo "📦 Installing SukiSU-Ultra..."
           curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s main
 
-          # setup.sh clones as 'KernelSU' — rename it
           if [ -d "KernelSU" ] && [ ! -d "SukiSU-Ultra" ]; then
             mv KernelSU SukiSU-Ultra
             echo "✔ Renamed KernelSU → SukiSU-Ultra"
@@ -149,25 +152,14 @@ jobs:
           [ -d "SukiSU-Ultra" ] || { echo "❌ SukiSU-Ultra not found!"; exit 1; }
           echo "✔ SukiSU-Ultra ready"
 
-          # Verify SukiSU-Ultra kernel entry point
-          INIT_C="SukiSU-Ultra/kernel/core/init.c"
-          [ -f "$INIT_C" ] || {
-            echo "❌ ERROR: $INIT_C not found! Listing SukiSU-Ultra/kernel/:"
-            ls -la SukiSU-Ultra/kernel/ || true
-            exit 1
-          }
-          echo "✔ Found entry point: $INIT_C"
-
-          # Fix drivers/kernelsu symlink — always force recreate with absolute path
+          # Fix drivers/kernelsu symlink
           KERNEL_SRC_ABS="$(realpath SukiSU-Ultra/kernel)"
           rm -rf drivers/kernelsu
           ln -sf "$KERNEL_SRC_ABS" drivers/kernelsu
           echo "✔ Symlink: drivers/kernelsu → $(readlink -f drivers/kernelsu)"
 
-          # Verify Makefile is reachable through symlink
           if [ ! -f "drivers/kernelsu/Makefile" ]; then
             echo "❌ ERROR: drivers/kernelsu/Makefile not found!"
-            echo "Absolute path used: $KERNEL_SRC_ABS"
             ls -la "$KERNEL_SRC_ABS"
             exit 1
           fi
@@ -202,26 +194,20 @@ jobs:
             cp -f susfs4ksu/kernel_patches/include/linux/susfs_def.h include/linux/susfs_def.h && \
             echo "✔ Copied susfs_def.h" || echo "⚠️ susfs_def.h not found, skipping"
 
-          # Copy SUSFS KSU integration files
-          if [ -d "susfs4ksu/kernel_patches/KernelSU/kernel" ]; then
-            cp -rf susfs4ksu/kernel_patches/KernelSU/kernel/* SukiSU-Ultra/kernel/ || true
-            echo "✔ Copied SUSFS integration files to SukiSU-Ultra/kernel/"
-          fi
-
-          # Apply KSU SUSFS patch
+          # Apply SukiSU SUSFS patch
           KSU_PATCH="susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch"
           if [ -f "$KSU_PATCH" ]; then
-            (
-              cd SukiSU-Ultra
-              patch -p1 --forward < "../$KSU_PATCH" && echo "✔ KSU SUSFS patch applied" || echo "⚠️ KSU patch had issues, continuing..."
-            )
+            cd SukiSU-Ultra
+            patch -p1 --forward < "../$KSU_PATCH" && echo "✔ KSU SUSFS patch applied" || echo "⚠️ KSU patch had issues, continuing..."
+            cd ..
           fi
 
-          # Add KSU (Inline Hook) and SUSFS configs — NO leading spaces (critical!)
+          # Add KSU and SUSFS configs using Python to avoid heredoc indentation issues
           CONFIG_FILE="arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
-          cat >> "$CONFIG_FILE" << 'EOF'
+          python3 << 'PYEOF'
+          configs = """
           CONFIG_KSU=y
-          CONFIG_KSU_INLINE_HOOK=y
+          CONFIG_KSU_WITH_KPROBES=n
           CONFIG_KPROBES=y
           CONFIG_HAVE_KPROBES=y
           CONFIG_KPROBE_EVENTS=y
@@ -240,11 +226,16 @@ jobs:
           CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
           CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
           CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
-          CONFIG_KSU_SUSFS_SUS_SU=y
-          EOF
-          echo "✔ KSU + SUSFS configs added"
+          CONFIG_KPM=y
+          CONFIG_DEBUG_INFO_BTF=n
+          """
+          import os
+          config_file = os.environ.get('CONFIG_FILE', 'arch/arm64/configs/gki_defconfig')
+          with open(config_file, 'a') as f:
+              f.write(configs.strip() + '\n')
+          print("✔ KSU + SUSFS configs added")
+          PYEOF
 
-          # Cleanup
           rm -rf susfs4ksu
           echo "🎉 SukiSU-Ultra with SUSFS fully integrated!"
 
@@ -252,9 +243,8 @@ jobs:
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
           CONFIG_FILE="./arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
-          
-          # addon configs — NO leading spaces (critical!)
-          cat >> "$CONFIG_FILE" << 'EOF'
+          python3 << 'PYEOF'
+          configs = """
           CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y
           CONFIG_TCP_CONG_ADVANCED=y
           CONFIG_TCP_CONG_BIC=n
@@ -266,8 +256,13 @@ jobs:
           CONFIG_TMPFS_XATTR=y
           CONFIG_TMPFS_POSIX_ACL=y
           CONFIG_KALLSYMS=y
-          EOF
-          echo "✅ Basic configs added"
+          """
+          import os
+          config_file = os.environ.get('CONFIG_FILE', 'arch/arm64/configs/gki_defconfig')
+          with open(config_file, 'a') as f:
+              f.write(configs.strip() + '\n')
+          print("✅ Basic configs added")
+          PYEOF
 
       - name: "📝 Append custom Makefile line"
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
@@ -275,194 +270,6 @@ jobs:
           echo 'KBUILD_CFLAGS += -Wno-implicit-function-declaration' >> Makefile
           echo "Custom Makefile line added successfully"
 
-      - name: "🔧 Fix ksu_late_loaded declaration"
-        if: matrix.kernel.enable_ksu == true
-        working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
-        run: |
-          INIT_C="drivers/kernelsu/core/init.c"
-          if [ ! -f "$INIT_C" ]; then
-            echo "⚠️ $INIT_C not found, skipping"
-            exit 0
-          fi
-
-          # Remove any previously-injected (possibly misplaced) definition
-          if grep -q "YASK_KSU_LATE_LOADED_DEF" "$INIT_C"; then
-            sed -i '/YASK_KSU_LATE_LOADED_DEF/,+1d' "$INIT_C"
-          fi
-
-          ANCHOR_LINE=$(grep -n '#include "infra/symbol_resolver.h"' "$INIT_C" | head -1 | cut -d: -f1)
-          if [ -z "$ANCHOR_LINE" ]; then
-            echo "❌ Anchor include not found, falling back to first line"
-            ANCHOR_LINE=0
-          fi
-
-          sed -i "${ANCHOR_LINE}a\\
-          \\
-          /* YASK_KSU_LATE_LOADED_DEF */\\
-          bool ksu_late_loaded = false;" "$INIT_C"
-
-          grep -n "YASK_KSU_LATE_LOADED_DEF" "$INIT_C" || { echo "❌ Definition not present!"; exit 1; }
-
-      - name: "🔍 Debug init.c context"
-        if: matrix.kernel.enable_ksu == true
-        working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
-        run: |
-          INIT_C="drivers/kernelsu/core/init.c"
-          echo "--- Lines 1-60 ---"
-          sed -n '1,60p' "$INIT_C"
-          echo "--- Lines 120-140 ---"
-          sed -n '120,140p' "$INIT_C"
-          echo "--- Lines 180-195 ---"
-          sed -n '180,195p' "$INIT_C"
-
-      - name: "🔍 Debug ksu_late_loaded occurrences"
-        if: matrix.kernel.enable_ksu == true
-        working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
-        run: grep -rn "ksu_late_loaded" drivers/kernelsu/ include/ || true
-
-      - name: "🔍 Debug app_profile.c context"
-        if: matrix.kernel.enable_ksu == true
-        working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
-        run: |
-          FILE="drivers/kernelsu/policy/app_profile.c"
-          echo "--- Lines 150-195 ---"
-          sed -n '150,195p' "$FILE"
-          echo "--- Check .rej files ---"
-          find drivers/kernelsu -name "*.rej" -exec sh -c 'echo "=== {} ==="; cat "{}"' \;
-
-      - name: "🔍 Debug app_profile.c function start"
-        if: matrix.kernel.enable_ksu == true
-        working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
-        run: |
-          FILE="drivers/kernelsu/policy/app_profile.c"
-          sed -n '100,182p' "$FILE"
-
-      - name: "🔧 Fix missing p,t declaration in app_profile.c"
-        if: matrix.kernel.enable_ksu == true
-        working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
-        run: |
-          FILE="drivers/kernelsu/policy/app_profile.c"
-          if [ ! -f "$FILE" ]; then
-            echo "⚠️ $FILE not found, skipping"
-            exit 0
-          fi
-
-          if grep -q "YASK_PT_DECL" "$FILE"; then
-            echo "✔ already patched"
-          else
-            sed -i 's/struct user_struct \*new_user;/struct user_struct *new_user;\n    struct task_struct *p = current, *t; \/* YASK_PT_DECL *\//' "$FILE"
-          fi
-
-          grep -n "YASK_PT_DECL" "$FILE" || { echo "❌ patch failed!"; exit 1; }
-
-
-      - name: "🔧 Fix dispatch.c SUSFS constants"
-        if: matrix.kernel.enable_ksu == true
-        working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
-        run: |
-          DISPATCH_C="drivers/kernelsu/supercall/dispatch.c"
-
-          # Remove any previously misplaced includes (inside #ifdef CONFIG_KPM)
-          sed -i '/^#include <linux\/susfs_def.h>$/d;/^#include <linux\/susfs.h>$/d' "$DISPATCH_C"
-
-          # Insert after the last top-level #include line (before any #ifdef block)
-          ANCHOR=$(awk '/^#include/{l=NR} /^#ifdef/{if(l)exit} END{print l}' "$DISPATCH_C")
-          sed -i "${ANCHOR}a #include <linux/susfs_def.h>\n#include <linux/susfs.h>" "$DISPATCH_C"
-
-          echo "--- Result around includes ---"
-          head -30 "$DISPATCH_C"
-
-
-
-      
-      - name: "🔍 Verify susfs includes in dispatch.c"
-        if: matrix.kernel.enable_ksu == true
-        working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
-        run: |
-          echo "--- grep susfs includes in dispatch.c ---"
-          grep -n "susfs" drivers/kernelsu/supercall/dispatch.c
-          echo "--- CONFIG_KSU_SUSFS in defconfig ---"
-          grep "CONFIG_KSU_SUSFS" arch/arm64/configs/gki_defconfig
-          echo "--- check for #ifdef CONFIG_KSU_SUSFS around SUSFS_MAGIC usage ---"
-          sed -n '440,460p' drivers/kernelsu/supercall/dispatch.c
-
-      - name: "🔍 Debug susfs_def.h content and dispatch.c includes"
-        if: matrix.kernel.enable_ksu == true
-        working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
-        run: |
-          echo "--- susfs_def.h (first 30 lines) ---"
-          head -30 include/linux/susfs_def.h
-          echo "--- dispatch.c includes after fix ---"
-          head -25 drivers/kernelsu/supercall/dispatch.c
-          echo "--- susfs.h includes ---"
-          head -15 include/linux/susfs.h
-
-      - name: "🧹 Clear ccache for kernelsu"
-        if: matrix.kernel.enable_ksu == true
-        run: |
-          if command -v ccache >/dev/null 2>&1; then
-            ccache -z
-            echo "CCACHE stats reset"
-          fi
-          # Some build.sh scripts set CCACHE_DIR via env; clear it if present
-          if [ -n "$CCACHE_DIR" ] && [ -d "$CCACHE_DIR" ]; then
-            rm -rf "$CCACHE_DIR"
-            echo "Cleared CCACHE_DIR: $CCACHE_DIR"
-          fi
-          rm -rf ~/.ccache
-
-      - name: "🧹 Clean build output directory"
-        working-directory: ${{ env.WORK_DIR }}
-        run: rm -rf out
-
-      - name: "🔍 Verify dispatch.c content right before build"
-        if: matrix.kernel.enable_ksu == true
-        run: |
-          FILE="${{ env.WORK_DIR }}/${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}/drivers/kernelsu/supercall/dispatch.c"
-          echo "File: $FILE"
-          md5sum "$FILE"
-          sed -n '25,30p' "$FILE"
-
-
-      - name: "🔍 Debug missing kernelsu source files"
-        if: matrix.kernel.enable_ksu == true
-        working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
-        run: |
-          echo "--- drivers/kernelsu top-level structure ---"
-          find drivers/kernelsu -maxdepth 2 -type d | sort
-          echo "--- search for ksu_syscall_hook_init definition ---"
-          grep -rn "ksu_syscall_hook_init\b" drivers/kernelsu/ | grep -v "\.h:"
-          echo "--- search for ksu_init_symbol_resolver definition ---"
-          grep -rn "ksu_init_symbol_resolver\b" drivers/kernelsu/ | grep -v "\.h:"
-          echo "--- search for find_kernel_symbol_exact definition ---"
-          grep -rn "find_kernel_symbol_exact\b" drivers/kernelsu/ | grep -v "\.h:"
-          echo "--- drivers/kernelsu/Makefile content ---"
-          cat drivers/kernelsu/Makefile
-
-
-      - name: "🔧 Add missing kernelsu-objs to Kbuild"
-        if: matrix.kernel.enable_ksu == true
-        working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
-        run: |
-          KBUILD="drivers/kernelsu/Kbuild"
-
-          if grep -q "YASK_EXTRA_OBJS" "$KBUILD"; then
-            echo "✔ already patched"
-          else
-            sed -i '/^kernelsu-objs += hook\/setuid_hook.o/a\
-            \
-            # YASK_EXTRA_OBJS\
-            kernelsu-objs += infra/symbol_resolver.o\
-            kernelsu-objs += hook/syscall_hook_manager.o\
-            kernelsu-objs += hook/lsm_hook.o\
-            kernelsu-objs += hook/syscall_event_bridge.o\
-            kernelsu-objs += hook/tp_marker.o\
-            kernelsu-objs += $(if $(filter arm64,$(ARCH)),hook/arm64/syscall_hook.o hook/arm64/patch_memory.o,hook/x86_64/syscall_hook.o hook/x86_64/patch_memory.o)' "$KBUILD"
-          fi
-
-          grep -n "YASK_EXTRA_OBJS" -A6 "$KBUILD" || { echo "❌ patch failed!"; exit 1; }
-          
-    
       - name: "🔨 Build kernel"
         working-directory: ${{ env.WORK_DIR }}
         run: |
@@ -476,7 +283,7 @@ jobs:
           cp Image "${{ env.OUTPUT_NAME }}"
 
       - name: "📤 Upload kernel artifact"
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v4.6.2
         with:
           name: ${{ matrix.kernel.name }}-kernel
           path: ${{ env.WORK_DIR }}/out/dist/${{ env.OUTPUT_NAME }}
@@ -488,7 +295,7 @@ jobs:
     needs: [build-kernels]
     steps:
       - name: "📥 Download kernel artifacts"
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v4.3.0
         with:
           path: ./artifacts/
 
@@ -496,65 +303,20 @@ jobs:
         run: |
           set -e
 
-          # Clone AnyKernel3
-          git clone --depth=1 https://github.com/topnotchfreaks/AnyKernel3 -b YASK AnyKernel3
+          git clone --depth=1 https://github.com/sajids12bd/AnyKernel3 -b master AnyKernel3
 
-          # Copy kernel images
           find ./artifacts -name "Image.*" -exec cp {} AnyKernel3/ \;
 
-          # Create banner
-          cat > AnyKernel3/banner << 'EOF'
-          ╔═════════════════════════════════════════════════════╗
-          ║                                                     ║
-          ║          ██╗   ██╗ █████╗ ███████╗██╗  ██╗          ║
-          ║          ╚██╗ ██╔╝██╔══██╗██╔════╝██║ ██╔╝          ║
-          ║           ╚████╔╝ ███████║███████╗█████╔╝           ║
-          ║            ╚██╔╝  ██╔══██║╚════██║██╔═██╗           ║
-          ║             ██║   ██║  ██║███████║██║  ██╗          ║
-          ║             ╚═╝   ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝          ║
-          ║                                                     ║
-          ║               Yet Another Stock Kernel              ║
-          ║                   by @belowzeroiq                   ║
-          ║                                                     ║
-          ║              Powered by Github Actions              ║
-          ║                                                     ║
-          ╠═════════════════════════════════════════════════════╣
-          ║                                                     ║
-          ║     Features:                                       ║
-          ║     • Full LTO + -O2 Optimization                   ║
-          ║     • Extra TCP Congestion (BBR, Westwood)          ║
-          ║     • AOSP clang-r547379                            ║
-          ║     • Non-KSU & Wild-KSU support                    ║
-          ║     • SUSFS integration (for KSU builds)            ║
-          ║     • Baseband-Guard Support                        ║
-          ║     • Metamodule Support                            ║
-          ║                                                     ║
-          ║     Info:                                           ║
-          ║     • Supported Android: 13-16                      ║
-          ║     • Supported Device:                             ║
-          ║       Redmi Note 12 4G/NFC                          ║
-          ║       Redmi Note 13 4G/NFC                          ║
-          ║       Redmi Pad SE                                  ║
-          ║                                                     ║
-          ║     Please ensure:                                  ║
-          ║     • Your device is compatible                     ║
-          ║     • You have a backup of your current kernel      ║
-          ║                                                     ║
-          ╚═════════════════════════════════════════════════════╝
-          Installing YASK Kernel...
-          EOF
-
-          # Create ZIP
-          ZIP_NAME="Anykernel3_YASK-WildKSU-AIO-FULL_$(date +'%Y-%m-%d').zip"
+          ZIP_NAME="Anykernel3_YASK-SukiSU-CLO_$(date +'%Y-%m-%d').zip"
           cd AnyKernel3
           zip -r9 "../$ZIP_NAME" * -x .git/*
           cd ..
-          
+
           echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
           echo "✅ Package created: $ZIP_NAME"
 
       - name: "⬆️ Upload to GitHub Release"
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
         with:
@@ -572,25 +334,18 @@ jobs:
           📦 *Build Information:*
           • Kernel: \`Linux 5.15\`
           • Android: \`13-16\`
-          • Base: \`GKI & CLO\`
-          • KSU: \`Wild KSU (canary)\`
+          • Base: \`CLO\`
+          • KSU: \`SukiSU-Ultra\`
           • SUSFS: \`Enabled (GKI A13-5.15)\`
           • LTO: \`Full\`
           • Optimization: \`-O2\`
           • BBG: \`Enabled\`
+          • KPM: \`Enabled\`
 
           📱 *Supported Devices:*
           • Redmi Note 12 4G/NFC
           • Redmi Note 13 4G/NFC
           • Redmi Pad SE
-
-          📱 *Supported Manager:*
-          • KSU by tiann
-          • KSU by sidex15
-          • Wild-KSU
-          • KernelSU-Next
-          • Rissu-KSU
-          • KowSU
 
           🕐 *Build Date:* $(date '+%Y-%m-%d %H:%M:%S UTC')
           📦 *Package:* \`${{ env.ZIP_NAME }}\`
@@ -607,21 +362,21 @@ jobs:
 
           else
             FAILURE_MSG="❌ *YASK Kernel Build Failed*
-            
+
           📦 *Build Information:*
           • Kernel: \`Linux 5.15\`
           • Android: \`13-16\`
-          • Base: \`GKI & CLO\`
-          • KSU: \`Wild KSU (canary)\`
+          • Base: \`CLO\`
+          • KSU: \`SukiSU-Ultra\`
           • SUSFS: \`Enabled (GKI A13-5.15)\`
           • LTO: \`Full\`
           • Optimization: \`-O2\`
           • BBG: \`Enabled\`
-          
+
           🕐 *Failed at:* $(date '+%Y-%m-%d %H:%M:%S UTC')
 
           🔍 Check the [workflow logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details."
-           
+
             curl -s -X POST \
               -d chat_id=${{ secrets.TELEGRAM_CHANNEL_ID }} \
               -d photo="${BANNER_URL}" \
