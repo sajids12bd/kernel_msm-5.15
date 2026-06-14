@@ -1,4 +1,4 @@
-name: "Build YASK Kernel (KernelSU-Next + SUSFS v2)"
+name: "Build CLO Kernel (SukiSu-Ultra + SUSFS v2)"
 
 env:
   OUT_DIR: "out"
@@ -260,6 +260,85 @@ jobs:
           echo 'KBUILD_CFLAGS += -Wno-implicit-function-declaration' >> Makefile
           echo "Custom Makefile line added successfully"
 
+
+      - name: "✅ Pre-build verification"
+        if: matrix.kernel.enable_ksu == true
+        working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
+        run: |
+          echo "========================================="
+          echo "       PRE-BUILD VERIFICATION"
+          echo "========================================="
+          PASS=0
+          FAIL=0
+
+          check() {
+            local desc="$1"
+            local result="$2"
+            if [ "$result" = "ok" ]; then
+              echo "✔ $desc"
+              PASS=$((PASS+1))
+            else
+              echo "❌ $desc"
+              FAIL=$((FAIL+1))
+            fi
+          }
+
+          # Check SukiSU-Ultra directory
+          [ -d "SukiSU-Ultra" ] && check "SukiSU-Ultra directory exists" "ok" || check "SukiSU-Ultra directory exists" "fail"
+
+          # Check symlink
+          [ -f "drivers/kernelsu/Makefile" ] && check "drivers/kernelsu symlink valid" "ok" || check "drivers/kernelsu symlink valid" "fail"
+
+          # Check SUSFS source files
+          [ -f "fs/susfs.c" ] && check "fs/susfs.c present" "ok" || check "fs/susfs.c present" "fail"
+          [ -f "include/linux/susfs.h" ] && check "include/linux/susfs.h present" "ok" || check "include/linux/susfs.h present" "fail"
+
+          # Check ksu_late_loaded fix
+          grep -q "ksu_late_loaded" drivers/kernelsu/core/init.c && \
+            grep -q "bool ksu_late_loaded" drivers/kernelsu/core/init.c && \
+            check "ksu_late_loaded declared in init.c" "ok" || \
+            check "ksu_late_loaded declared in init.c" "fail"
+
+          # Check app_profile fix
+          grep -q "struct task_struct \*p = current" drivers/kernelsu/policy/app_profile.c && \
+            check "app_profile.c p,t fix applied" "ok" || \
+            check "app_profile.c p,t fix applied" "fail"
+
+          # Check configs in defconfig
+          CONFIG_FILE="arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
+          grep -q "CONFIG_KSU=y" "$CONFIG_FILE" && check "CONFIG_KSU=y present" "ok" || check "CONFIG_KSU=y present" "fail"
+          grep -q "CONFIG_KSU_SUSFS=y" "$CONFIG_FILE" && check "CONFIG_KSU_SUSFS=y present" "ok" || check "CONFIG_KSU_SUSFS=y present" "fail"
+          grep -q "CONFIG_KPM=y" "$CONFIG_FILE" && check "CONFIG_KPM=y present" "ok" || check "CONFIG_KPM=y present" "fail"
+          grep -q "CONFIG_KSU_WITH_KPROBES=n" "$CONFIG_FILE" && check "CONFIG_KSU_WITH_KPROBES=n present" "ok" || check "CONFIG_KSU_WITH_KPROBES=n present" "fail"
+          grep -q "CONFIG_DEBUG_INFO_BTF=n" "$CONFIG_FILE" && check "CONFIG_DEBUG_INFO_BTF=n present" "ok" || check "CONFIG_DEBUG_INFO_BTF=n present" "fail"
+          grep -q "CONFIG_OVERLAY_FS=y" "$CONFIG_FILE" && check "CONFIG_OVERLAY_FS=y present" "ok" || check "CONFIG_OVERLAY_FS=y present" "fail"
+
+          # Check BBG
+          grep -q "CONFIG_BBG=y" "$CONFIG_FILE" && check "CONFIG_BBG=y present" "ok" || check "CONFIG_BBG=y present" "fail"
+
+          # Check no dangerous configs
+          grep -q "CONFIG_KSU_SUSFS_SUS_SU=y" "$CONFIG_FILE" && \
+            check "CONFIG_KSU_SUSFS_SUS_SU=y NOT present (dangerous)" "fail" || \
+            check "CONFIG_KSU_SUSFS_SUS_SU=y not present (safe)" "ok"
+
+          # Check Makefile custom flag
+          grep -q "Wno-implicit-function-declaration" Makefile && \
+            check "Custom Makefile flag present" "ok" || \
+            check "Custom Makefile flag present" "fail"
+
+          echo "========================================="
+          echo "  PASSED: $PASS  |  FAILED: $FAIL"
+          echo "========================================="
+
+          if [ $FAIL -gt 0 ]; then
+            echo "❌ Verification failed — fix issues before building!"
+            exit 1
+          else
+            echo "✅ All checks passed — safe to build!"
+          fi
+
+
+
       - name: "🔨 Build kernel"
         working-directory: ${{ env.WORK_DIR }}
         run: |
@@ -273,7 +352,7 @@ jobs:
           cp Image "${{ env.OUTPUT_NAME }}"
 
       - name: "📤 Upload kernel artifact"
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v4.6.2
         with:
           name: ${{ matrix.kernel.name }}-kernel
           path: ${{ env.WORK_DIR }}/out/dist/${{ env.OUTPUT_NAME }}
@@ -285,7 +364,7 @@ jobs:
     needs: [build-kernels]
     steps:
       - name: "📥 Download kernel artifacts"
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v4.3.0
         with:
           path: ./artifacts/
 
@@ -309,7 +388,7 @@ jobs:
           echo "✅ Package created: $ZIP_NAME"
 
       - name: "⬆️ Upload to GitHub Release"
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
         with:
