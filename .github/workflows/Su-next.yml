@@ -1,4 +1,4 @@
-name: "Build SukiSU-Ultra"
+name: "Build YASK Kernel (KernelSU-Next + SUSFS v2)"
 
 env:
   OUT_DIR: "out"
@@ -133,81 +133,72 @@ jobs:
           echo "CONFIG_BBG=y" >> arch/arm64/configs/${{ env.DEFCONFIG_NAME }}
           sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/selinux/selinux,baseband_guard/ } }' security/Kconfig
 
-      - name: "🔧 Setup SukiSU-Ultra with SUSFS"
+      - name: "🔧 Setup KernelSU-Next (pershoot/next-susfs) with SUSFS v2.0.0 + inline hooks"
         if: matrix.kernel.enable_ksu == true
         working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
           set -e
 
-          rm -rf ./KernelSU ./drivers/kernelsu ./SukiSU-Ultra
+          echo "🧹 Cleaning any previous KSU/SUSFS leftovers..."
+          rm -rf ./KernelSU ./drivers/kernelsu ./SukiSU-Ultra ./susfs4ksu
 
-          echo "📦 Installing SukiSU-Ultra..."
-          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s main
+          echo "📦 Cloning SUSFS (pershoot dev branch, v2.0.0 + inline hooks)..."
+          git clone --depth=1 https://gitlab.com/pershoot/susfs4ksu.git -b gki-android13-5.15-dev susfs4ksu
 
-          if [ -d "KernelSU" ] && [ ! -d "SukiSU-Ultra" ]; then
-            mv KernelSU SukiSU-Ultra
-            echo "✔ Renamed KernelSU → SukiSU-Ultra"
+          [ -d "susfs4ksu" ] || { echo "❌ SUSFS clone failed!"; exit 1; }
+
+          echo "📄 Installing SUSFS source files..."
+          mkdir -p fs include/linux
+
+          cp -f susfs4ksu/kernel_patches/fs/* fs/ \
+            && echo "✔ Copied fs/* from susfs4ksu" \
+            || { echo "❌ Failed to copy susfs fs files!"; exit 1; }
+
+          cp -f susfs4ksu/kernel_patches/include/linux/* include/linux/ \
+            && echo "✔ Copied include/linux/* from susfs4ksu" \
+            || { echo "❌ Failed to copy susfs headers!"; exit 1; }
+
+          echo "🔧 Applying SUSFS kernel patch..."
+          if [ -f "susfs4ksu/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch" ]; then
+            patch -p1 -ui susfs4ksu/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch \
+              && echo "✅ SUSFS patch applied" \
+              || echo "::warning::SUSFS patch had issues, continuing..."
+          else
+            echo "::warning::50_add_susfs_in_gki-android13-5.15.patch not found, skipping"
           fi
 
-          [ -d "SukiSU-Ultra" ] || { echo "❌ SukiSU-Ultra not found!"; exit 1; }
-          echo "✔ SukiSU-Ultra ready"
+          echo "🔧 Applying inline-hook (scope-minimized manual hooks) patch..."
+          if [ -f "susfs4ksu/kernel_patches/60_scope-minimized_manual_hooks.patch" ]; then
+            patch -p1 -ui susfs4ksu/kernel_patches/60_scope-minimized_manual_hooks.patch \
+              && echo "✅ Inline hook patch applied" \
+              || echo "::warning::Inline hook patch had issues, continuing..."
+          else
+            echo "::warning::60_scope-minimized_manual_hooks.patch not found, skipping"
+          fi
 
-          # Fix drivers/kernelsu symlink
-          KERNEL_SRC_ABS="$(realpath SukiSU-Ultra/kernel)"
-          rm -rf drivers/kernelsu
-          ln -sf "$KERNEL_SRC_ABS" drivers/kernelsu
-          echo "✔ Symlink: drivers/kernelsu → $(readlink -f drivers/kernelsu)"
+          rm -rf susfs4ksu
+
+          echo "📦 Installing KernelSU-Next (pershoot/next-susfs)..."
+          curl -LSs "https://raw.githubusercontent.com/pershoot/KernelSU-Next/refs/heads/next-susfs/kernel/setup.sh" | bash -s next-susfs
+
+          if [ ! -L "drivers/kernelsu" ] && [ ! -d "drivers/kernelsu" ]; then
+            echo "❌ ERROR: drivers/kernelsu was not created by setup.sh!"
+            exit 1
+          fi
+          echo "✔ drivers/kernelsu present"
 
           if [ ! -f "drivers/kernelsu/Makefile" ]; then
             echo "❌ ERROR: drivers/kernelsu/Makefile not found!"
-            ls -la "$KERNEL_SRC_ABS"
+            ls -la drivers/kernelsu
             exit 1
           fi
           echo "✔ drivers/kernelsu/Makefile verified"
 
-          echo "📦 Cloning SUSFS4KSU..."
-          git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android13-5.15
-          [ -d "susfs4ksu" ] || { echo "❌ SUSFS clone failed!"; exit 1; }
-
-          # Apply SUSFS kernel patch
-          SUSFS_PATCH="susfs4ksu/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch"
-          if [ -f "$SUSFS_PATCH" ]; then
-            echo "🔧 Applying SUSFS kernel patch..."
-            patch -p1 --forward < "$SUSFS_PATCH" && echo "✅ SUSFS patch applied" || echo "⚠️ Patch had issues, continuing..."
-          else
-            echo "⚠️ SUSFS patch not found: $SUSFS_PATCH"
-          fi
-
-          # Copy SUSFS source files
-          echo "📄 Installing SUSFS source files..."
-          mkdir -p fs include/linux
-
-          cp -f susfs4ksu/kernel_patches/fs/susfs.c fs/susfs.c \
-            && echo "✔ Copied fs/susfs.c" \
-            || { echo "❌ fs/susfs.c missing!"; exit 1; }
-
-          cp -f susfs4ksu/kernel_patches/include/linux/susfs.h include/linux/susfs.h \
-            && echo "✔ Copied include/linux/susfs.h" \
-            || { echo "❌ susfs.h missing!"; exit 1; }
-
-          [ -f "susfs4ksu/kernel_patches/include/linux/susfs_def.h" ] && \
-            cp -f susfs4ksu/kernel_patches/include/linux/susfs_def.h include/linux/susfs_def.h && \
-            echo "✔ Copied susfs_def.h" || echo "⚠️ susfs_def.h not found, skipping"
-
-          # Apply SukiSU SUSFS patch
-          KSU_PATCH="susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch"
-          if [ -f "$KSU_PATCH" ]; then
-            cd SukiSU-Ultra
-            patch -p1 --forward < "../$KSU_PATCH" && echo "✔ KSU SUSFS patch applied" || echo "⚠️ KSU patch had issues, continuing..."
-            cd ..
-          fi
-
-          # Add KSU and SUSFS configs using Python to avoid heredoc indentation issues
+          echo "📐 Adding KSU + SUSFS v2 configs..."
           CONFIG_FILE="arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
           python3 << 'PYEOF'
           configs = """
           CONFIG_KSU=y
-          CONFIG_KSU_WITH_KPROBES=n
           CONFIG_KPROBES=y
           CONFIG_HAVE_KPROBES=y
           CONFIG_KPROBE_EVENTS=y
@@ -233,80 +224,10 @@ jobs:
           config_file = os.environ.get('CONFIG_FILE', 'arch/arm64/configs/gki_defconfig')
           with open(config_file, 'a') as f:
               f.write(configs.strip() + '\n')
-          print("✔ KSU + SUSFS configs added")
+          print("✔ KernelSU-Next + SUSFS v2 configs added")
           PYEOF
 
-          rm -rf susfs4ksu
-          echo "🎉 SukiSU-Ultra with SUSFS fully integrated!"
-
-
-      - name: "🔧 Fix ksu_late_loaded declaration"
-        if: matrix.kernel.enable_ksu == true
-        working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
-        run: |
-          INIT_C="drivers/kernelsu/core/init.c"
-          python3 - "$INIT_C" << 'PYEOF'
-          import sys
-          
-          path = sys.argv[1]
-          with open(path, 'r') as f:
-              content = f.read()
-          
-          # Remove any previous injection
-          if '/* YASK_LATE_LOADED */' in content:
-              lines = content.split('\n')
-              lines = [l for l in lines if '/* YASK_LATE_LOADED */' not in l and 'ksu_late_loaded = false;' not in l or 'if' in l]
-              content = '\n'.join(lines)
-          
-          # Find the position after the first #include and insert there
-          # so bool and stdbool.h are available
-          lines = content.split('\n')
-          first_include = 0
-          for i, line in enumerate(lines):
-              if line.strip().startswith('#include'):
-                  first_include = i
-                  break
-          
-          # Insert after first include
-          lines.insert(first_include + 1, '#include <linux/types.h>')
-          lines.insert(first_include + 2, '/* YASK_LATE_LOADED */')
-          lines.insert(first_include + 3, 'bool ksu_late_loaded = false;')
-          
-          with open(path, 'w') as f:
-              f.write('\n'.join(lines))
-          print(f"✔ Fixed ksu_late_loaded after first include in {path}")
-          PYEOF
-                    echo "=== Verifying ==="
-                    head -10 "$INIT_C"
-
-      - name: "🔧 Fix app_profile.c undeclared p and t"
-        if: matrix.kernel.enable_ksu == true
-        working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
-        run: |
-          FILE="drivers/kernelsu/policy/app_profile.c"
-          python3 - "$FILE" << 'PYEOF'
-          import sys
-          
-          path = sys.argv[1]
-          with open(path, 'r') as f:
-              content = f.read()
-          
-          # Find the function containing for_each_thread and add p, t declarations
-          # Look for the opening brace of the function before line 183
-          old = 'for_each_thread (p, t) {'
-          new = 'struct task_struct *p = current, *t;\n    for_each_thread (p, t) {'
-          
-          if old in content and 'struct task_struct *p = current, *t;' not in content:
-              content = content.replace(old, new, 1)
-              with open(path, 'w') as f:
-                  f.write(content)
-              print("✔ Fixed p and t declarations in app_profile.c")
-          else:
-              print("✔ Already fixed or pattern not found")
-          PYEOF
-                    echo "=== Verifying ==="
-                    grep -n "task_struct\|for_each_thread" "$FILE" | head -10
-                    
+          echo "🎉 KernelSU-Next + SUSFS v2.0.0 + inline hooks integrated!"
 
       - name: "⚙️ Setup basic configs"
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
@@ -338,8 +259,6 @@ jobs:
         run: |
           echo 'KBUILD_CFLAGS += -Wno-implicit-function-declaration' >> Makefile
           echo "Custom Makefile line added successfully"
-
-          
 
       - name: "🔨 Build kernel"
         working-directory: ${{ env.WORK_DIR }}
@@ -378,7 +297,7 @@ jobs:
 
           find ./artifacts -name "Image.*" -exec cp {} AnyKernel3/ \;
 
-          ZIP_NAME="Anykernel3_YASK-SukiSU-CLO_$(date +'%Y-%m-%d').zip"
+          ZIP_NAME="Anykernel3_YASK-KSUN-SUSFS2-CLO_$(date +'%Y-%m-%d').zip"
           cd AnyKernel3
           zip -r9 "../$ZIP_NAME" * -x .git/*
           cd ..
@@ -406,8 +325,8 @@ jobs:
           • Kernel: \`Linux 5.15\`
           • Android: \`13-16\`
           • Base: \`CLO\`
-          • KSU: \`SukiSU-Ultra\`
-          • SUSFS: \`Enabled (GKI A13-5.15)\`
+          • KSU: \`KernelSU-Next (pershoot/next-susfs)\`
+          • SUSFS: \`v2.0.0 + Inline Hooks (GKI A13-5.15)\`
           • LTO: \`Full\`
           • Optimization: \`-O2\`
           • BBG: \`Enabled\`
@@ -438,8 +357,8 @@ jobs:
           • Kernel: \`Linux 5.15\`
           • Android: \`13-16\`
           • Base: \`CLO\`
-          • KSU: \`SukiSU-Ultra\`
-          • SUSFS: \`Enabled (GKI A13-5.15)\`
+          • KSU: \`KernelSU-Next (pershoot/next-susfs)\`
+          • SUSFS: \`v2.0.0 + Inline Hooks (GKI A13-5.15)\`
           • LTO: \`Full\`
           • Optimization: \`-O2\`
           • BBG: \`Enabled\`
