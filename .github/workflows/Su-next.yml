@@ -199,6 +199,7 @@ jobs:
           python3 << 'PYEOF'
           configs = """
           CONFIG_KSU=y
+          CONFIG_KSU_WITH_KPROBES=n
           CONFIG_KPROBES=y
           CONFIG_HAVE_KPROBES=y
           CONFIG_KPROBE_EVENTS=y
@@ -284,8 +285,8 @@ jobs:
           }
 
           # Check SukiSU-Ultra directory
-          [ -d "SukiSU-Ultra" ] && check "SukiSU-Ultra directory exists" "ok" || check "SukiSU-Ultra directory exists" "fail"
-
+          ( [ -d "SukiSU-Ultra" ] || [ -d "KernelSU" ] ) && check "SukiSU-Ultra/KernelSU directory exists" "ok" || check "SukiSU-Ultra/KernelSU directory exists" "fail"
+          
           # Check symlink
           [ -f "drivers/kernelsu/Makefile" ] && check "drivers/kernelsu symlink valid" "ok" || check "drivers/kernelsu symlink valid" "fail"
 
@@ -325,6 +326,9 @@ jobs:
           grep -q "Wno-implicit-function-declaration" Makefile && \
             check "Custom Makefile flag present" "ok" || \
             check "Custom Makefile flag present" "fail"
+
+          echo "=== KSU related configs in defconfig ==="
+          grep "KSU\|KPROBES" "$CONFIG_FILE" | head -20
 
           echo "========================================="
           echo "  PASSED: $PASS  |  FAILED: $FAIL"
