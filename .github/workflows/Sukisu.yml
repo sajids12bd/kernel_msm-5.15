@@ -239,6 +239,42 @@ jobs:
           rm -rf susfs4ksu
           echo "🎉 SukiSU-Ultra with SUSFS fully integrated!"
 
+
+      - name: "🔧 Fix ksu_late_loaded declaration"
+        if: matrix.kernel.enable_ksu == true
+        working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
+        run: |
+          INIT_C="SukiSU-Ultra/kernel/core/init.c"
+          if [ ! -f "$INIT_C" ]; then
+            INIT_C="drivers/kernelsu/core/init.c"
+          fi
+
+          if grep -q "ksu_late_loaded" "$INIT_C"; then
+            if ! grep -q "bool ksu_late_loaded" "$INIT_C"; then
+              python3 << 'PYEOF'
+          with open('SukiSU-Ultra/kernel/core/init.c', 'r') as f:
+              content = f.read()
+          
+          if 'bool ksu_late_loaded' not in content:
+              lines = content.split('\n')
+              insert_at = 0
+              for i, line in enumerate(lines):
+                  if '#include' in line:
+                      insert_at = i
+              lines.insert(insert_at + 1, 'bool ksu_late_loaded = false;')
+              with open('SukiSU-Ultra/kernel/core/init.c', 'w') as f:
+                  f.write('\n'.join(lines))
+              print("✔ Fixed ksu_late_loaded declaration")
+          else:
+              print("✔ ksu_late_loaded already declared")
+          PYEOF
+                      else
+                        echo "✔ ksu_late_loaded already declared"
+                      fi
+                    else
+                      echo "✔ ksu_late_loaded not used, skipping"
+                    fi  
+
       - name: "⚙️ Setup basic configs"
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
