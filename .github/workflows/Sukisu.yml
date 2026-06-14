@@ -252,33 +252,18 @@ jobs:
           with open(path, 'r') as f:
               content = f.read()
           
-          # Add unconditional declaration at the very top after all includes
-          # before any #if blocks
-          marker = '/* YASK: unconditional ksu_late_loaded */'
+          marker = '/* YASK_LATE_LOADED */'
           if marker not in content:
-              # Find the position after all top-level includes but before any code
-              lines = content.split('\n')
-              last_include = 0
-              for i, line in enumerate(lines):
-                  stripped = line.strip()
-                  if stripped.startswith('#include'):
-                      last_include = i
-              
-              # Insert after last include
-              lines.insert(last_include + 1, '')
-              lines.insert(last_include + 2, marker)
-              lines.insert(last_include + 3, '#if !defined(CONFIG_STACKPROTECTOR) || !(defined(CONFIG_ARM64) && defined(MODULE) && !defined(CONFIG_STACKPROTECTOR_PER_TASK))')
-              lines.insert(last_include + 4, 'bool ksu_late_loaded = false;')
-              lines.insert(last_include + 5, '#endif')
-              
+              # Prepend unconditionally at the very top of the file
+              injection = marker + '\nbool ksu_late_loaded = false;\n\n'
               with open(path, 'w') as f:
-                  f.write('\n'.join(lines))
-              print(f"✔ Fixed ksu_late_loaded unconditional declaration in {path}")
+                  f.write(injection + content)
+              print(f"✔ Fixed ksu_late_loaded at top of {path}")
           else:
               print("✔ Already fixed")
           PYEOF
                     echo "=== Verifying fix ==="
-                    grep -n "ksu_late_loaded\|YASK" "$INIT_C" | head -10  
+                    head -5 "$INIT_C"  
 
       - name: "⚙️ Setup basic configs"
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
