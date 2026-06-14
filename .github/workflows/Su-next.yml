@@ -31,6 +31,7 @@ jobs:
               - "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-gki-fixup.patch"
               - "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-scripts-sign-builds.patch"
               - "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-scripts-do-not-ship-full-auto_localversion.patch"
+              - "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-scripts-Don-t-append-and-dirty-to-localversion.patch"
 
     env:
       KERNEL_LOC_DIR: ${{ matrix.kernel.dir }}
