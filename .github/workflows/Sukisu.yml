@@ -326,6 +326,23 @@ jobs:
           echo "=== Real path ==="
           realpath drivers/kernelsu/core/init.c
 
+
+      - name: "🔍 Debug ksu_late_loaded header"
+        if: matrix.kernel.enable_ksu == true
+        working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
+        run: |
+          echo "=== Lines 40-55 of init.c ==="
+          sed -n '40,55p' drivers/kernelsu/core/init.c
+          echo ""
+          echo "=== Search ksu_late_loaded in all headers ==="
+          grep -rn "ksu_late_loaded" drivers/kernelsu/ --include="*.h"
+          echo ""
+          echo "=== Search in ksu.h ==="
+          grep -n "ksu_late_loaded" drivers/kernelsu/ksu.h 2>/dev/null || echo "not in ksu.h"
+
+
+          
+
       - name: "🔨 Build kernel"
         working-directory: ${{ env.WORK_DIR }}
         run: |
