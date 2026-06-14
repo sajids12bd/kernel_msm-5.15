@@ -244,36 +244,39 @@ jobs:
         if: matrix.kernel.enable_ksu == true
         working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
-          INIT_C="SukiSU-Ultra/kernel/core/init.c"
-          if [ ! -f "$INIT_C" ]; then
-            INIT_C="drivers/kernelsu/core/init.c"
-          fi
+          # Use the actual compiled path
+          INIT_C="drivers/kernelsu/core/init.c"
 
-          if grep -q "ksu_late_loaded" "$INIT_C"; then
-            if ! grep -q "bool ksu_late_loaded" "$INIT_C"; then
-              python3 << 'PYEOF'
-          with open('SukiSU-Ultra/kernel/core/init.c', 'r') as f:
+          echo "🔍 Checking ksu_late_loaded in $INIT_C..."
+          grep -n "ksu_late_loaded" "$INIT_C" | head -10
+
+          if grep -q "ksu_late_loaded" "$INIT_C" && ! grep -q "bool ksu_late_loaded" "$INIT_C"; then
+            python3 - "$INIT_C" << 'PYEOF'
+          import sys
+          
+          path = sys.argv[1]
+          with open(path, 'r') as f:
               content = f.read()
           
           if 'bool ksu_late_loaded' not in content:
               lines = content.split('\n')
               insert_at = 0
               for i, line in enumerate(lines):
-                  if '#include' in line:
+                  if line.startswith('#include'):
                       insert_at = i
               lines.insert(insert_at + 1, 'bool ksu_late_loaded = false;')
-              with open('SukiSU-Ultra/kernel/core/init.c', 'w') as f:
+              with open(path, 'w') as f:
                   f.write('\n'.join(lines))
-              print("✔ Fixed ksu_late_loaded declaration")
+              print(f"✔ Fixed ksu_late_loaded in {path}")
           else:
               print("✔ ksu_late_loaded already declared")
           PYEOF
-                      else
-                        echo "✔ ksu_late_loaded already declared"
-                      fi
                     else
-                      echo "✔ ksu_late_loaded not used, skipping"
-                    fi  
+                      echo "✔ ksu_late_loaded already declared or not used"
+                    fi
+          
+                    echo "🔍 Verifying fix..."
+                    grep -n "bool ksu_late_loaded\|ksu_late_loaded" "$INIT_C" | head -5  
 
       - name: "⚙️ Setup basic configs"
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
