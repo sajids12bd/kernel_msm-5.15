@@ -133,15 +133,15 @@ jobs:
           echo "CONFIG_BBG=y" >> arch/arm64/configs/${{ env.DEFCONFIG_NAME }}
           sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/selinux/selinux,baseband_guard/ } }' security/Kconfig
 
-      - name: "🔧 Setup KernelSU-Next (pershoot/next-susfs) with SUSFS v2.0.0 + inline hooks"
+      - name: "🔧 Setup SukiSU-Ultra with SUSFS v2.0.0 + inline hooks"
         if: matrix.kernel.enable_ksu == true
         working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
           set -e
-
+      
           echo "🧹 Cleaning any previous KSU/SUSFS leftovers..."
           rm -rf ./KernelSU ./drivers/kernelsu ./SukiSU-Ultra ./susfs4ksu
-
+      
           echo "📦 Cloning SUSFS (simonpunk dev branch for 5.15)..."
           if git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android13-5.15-dev susfs4ksu; then
             echo "✔ Cloned gki-android13-5.15-dev"
@@ -149,20 +149,20 @@ jobs:
             echo "::warning::dev branch clone failed, falling back to stable gki-android13-5.15"
             git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android13-5.15 susfs4ksu
           fi
-
+      
           [ -d "susfs4ksu" ] || { echo "❌ SUSFS clone failed!"; exit 1; }
-
+      
           echo "📄 Installing SUSFS source files..."
           mkdir -p fs include/linux
-
+      
           cp -f susfs4ksu/kernel_patches/fs/* fs/ \
             && echo "✔ Copied fs/* from susfs4ksu" \
             || { echo "❌ Failed to copy susfs fs files!"; exit 1; }
-
+      
           cp -f susfs4ksu/kernel_patches/include/linux/* include/linux/ \
             && echo "✔ Copied include/linux/* from susfs4ksu" \
             || { echo "❌ Failed to copy susfs headers!"; exit 1; }
-
+      
           echo "🔧 Applying SUSFS kernel patch..."
           if [ -f "susfs4ksu/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch" ]; then
             patch -p1 -ui susfs4ksu/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch \
@@ -171,8 +171,8 @@ jobs:
           else
             echo "::warning::50_add_susfs_in_gki-android13-5.15.patch not found, skipping"
           fi
-
-          echo "🔧 Applying inline-hook (scope-minimized manual hooks) patch..."
+      
+          echo "🔧 Applying inline-hook patch..."
           if [ -f "susfs4ksu/kernel_patches/60_scope-minimized_manual_hooks.patch" ]; then
             patch -p1 -ui susfs4ksu/kernel_patches/60_scope-minimized_manual_hooks.patch \
               && echo "✅ Inline hook patch applied" \
@@ -180,25 +180,19 @@ jobs:
           else
             echo "::warning::60_scope-minimized_manual_hooks.patch not found, skipping"
           fi
-
+      
           rm -rf susfs4ksu
-
-          echo "📦 Installing KernelSU-Next (pershoot/next-susfs)..."
-          curl -LSs "https://raw.githubusercontent.com/pershoot/KernelSU-Next/refs/heads/next-susfs/kernel/setup.sh" | bash -s next-susfs
-
+      
+          echo "📦 Installing SukiSU-Ultra (v2-compatible)..."
+          curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU-Ultra/main/kernel/setup.sh" | bash -s susfs-v2
+      
           if [ ! -L "drivers/kernelsu" ] && [ ! -d "drivers/kernelsu" ]; then
             echo "❌ ERROR: drivers/kernelsu was not created by setup.sh!"
             exit 1
           fi
-          echo "✔ drivers/kernelsu present"
-
-          if [ ! -f "drivers/kernelsu/Makefile" ]; then
-            echo "❌ ERROR: drivers/kernelsu/Makefile not found!"
-            ls -la drivers/kernelsu
-            exit 1
-          fi
-          echo "✔ drivers/kernelsu/Makefile verified"
-
+          echo "✔ drive
+          rs/kernelsu present"
+      
           echo "📐 Adding KSU + SUSFS v2 configs..."
           CONFIG_FILE="arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
           python3 << 'PYEOF'
@@ -229,10 +223,10 @@ jobs:
           config_file = os.environ.get('CONFIG_FILE', 'arch/arm64/configs/gki_defconfig')
           with open(config_file, 'a') as f:
               f.write(configs.strip() + '\n')
-          print("✔ KernelSU-Next + SUSFS v2 configs added")
+          print("✔ SukiSU-Ultra + SUSFS v2 configs added")
           PYEOF
-
-          echo "🎉 KernelSU-Next + SUSFS v2.0.0 + inline hooks integrated!"
+      
+          echo "🎉 SukiSU-Ultra + SUSFS v2.0.0 + inline hooks integrated!"
 
       - name: "⚙️ Setup basic configs"
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
