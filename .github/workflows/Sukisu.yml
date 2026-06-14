@@ -279,12 +279,12 @@ jobs:
                     echo "=== Verifying ==="
                     head -10 "$INIT_C"
 
-          - name: "🔧 Fix app_profile.c undeclared p and t"
-                  if: matrix.kernel.enable_ksu == true
-                  working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
-                  run: |
-                    FILE="drivers/kernelsu/policy/app_profile.c"
-                    python3 - "$FILE" << 'PYEOF'
+      - name: "🔧 Fix app_profile.c undeclared p and t"
+        if: matrix.kernel.enable_ksu == true
+        working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
+        run: |
+          FILE="drivers/kernelsu/policy/app_profile.c"
+          python3 - "$FILE" << 'PYEOF'
           import sys
           
           path = sys.argv[1]
