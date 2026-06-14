@@ -277,7 +277,36 @@ jobs:
           print(f"✔ Fixed ksu_late_loaded after first include in {path}")
           PYEOF
                     echo "=== Verifying ==="
-                    head -10 "$INIT_C"  
+                    head -10 "$INIT_C"
+
+          - name: "🔧 Fix app_profile.c undeclared p and t"
+                  if: matrix.kernel.enable_ksu == true
+                  working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
+                  run: |
+                    FILE="drivers/kernelsu/policy/app_profile.c"
+                    python3 - "$FILE" << 'PYEOF'
+          import sys
+          
+          path = sys.argv[1]
+          with open(path, 'r') as f:
+              content = f.read()
+          
+          # Find the function containing for_each_thread and add p, t declarations
+          # Look for the opening brace of the function before line 183
+          old = 'for_each_thread (p, t) {'
+          new = 'struct task_struct *p = current, *t;\n    for_each_thread (p, t) {'
+          
+          if old in content and 'struct task_struct *p = current, *t;' not in content:
+              content = content.replace(old, new, 1)
+              with open(path, 'w') as f:
+                  f.write(content)
+              print("✔ Fixed p and t declarations in app_profile.c")
+          else:
+              print("✔ Already fixed or pattern not found")
+          PYEOF
+                    echo "=== Verifying ==="
+                    grep -n "task_struct\|for_each_thread" "$FILE" | head -10
+                    
 
       - name: "⚙️ Setup basic configs"
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
