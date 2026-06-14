@@ -296,38 +296,6 @@ jobs:
           echo 'KBUILD_CFLAGS += -Wno-implicit-function-declaration' >> Makefile
           echo "Custom Makefile line added successfully"
 
-
-      - name: "🔍 Debug init.c"
-        if: matrix.kernel.enable_ksu == true
-        working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
-        run: |
-          echo "=== First 30 lines of init.c ==="
-          head -30 drivers/kernelsu/core/init.c
-          echo ""
-          echo "=== bool ksu_late_loaded search ==="
-          grep -n "bool ksu_late_loaded\|ksu_late_loaded" drivers/kernelsu/core/init.c | head -10
-          echo ""
-          echo "=== Is symlink? ==="
-          ls -la drivers/kernelsu/core/init.c
-          echo ""
-          echo "=== Real path ==="
-          realpath drivers/kernelsu/core/init.c
-
-
-      - name: "🔍 Debug ksu_late_loaded header"
-        if: matrix.kernel.enable_ksu == true
-        working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
-        run: |
-          echo "=== Lines 40-55 of init.c ==="
-          sed -n '40,55p' drivers/kernelsu/core/init.c
-          echo ""
-          echo "=== Search ksu_late_loaded in all headers ==="
-          grep -rn "ksu_late_loaded" drivers/kernelsu/ --include="*.h"
-          echo ""
-          echo "=== Search in ksu.h ==="
-          grep -n "ksu_late_loaded" drivers/kernelsu/ksu.h 2>/dev/null || echo "not in ksu.h"
-
-
           
 
       - name: "🔨 Build kernel"
