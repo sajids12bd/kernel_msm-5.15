@@ -142,8 +142,13 @@ jobs:
           echo "🧹 Cleaning any previous KSU/SUSFS leftovers..."
           rm -rf ./KernelSU ./drivers/kernelsu ./SukiSU-Ultra ./susfs4ksu
 
-          echo "📦 Cloning SUSFS (pershoot dev branch, v2.0.0 + inline hooks)..."
-          git clone --depth=1 https://gitlab.com/pershoot/susfs4ksu.git -b gki-android13-5.15-dev susfs4ksu
+          echo "📦 Cloning SUSFS (simonpunk dev branch for 5.15)..."
+          if git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android13-5.15-dev susfs4ksu; then
+            echo "✔ Cloned gki-android13-5.15-dev"
+          else
+            echo "::warning::dev branch clone failed, falling back to stable gki-android13-5.15"
+            git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android13-5.15 susfs4ksu
+          fi
 
           [ -d "susfs4ksu" ] || { echo "❌ SUSFS clone failed!"; exit 1; }
 
