@@ -309,6 +309,23 @@ jobs:
           echo 'KBUILD_CFLAGS += -Wno-implicit-function-declaration' >> Makefile
           echo "Custom Makefile line added successfully"
 
+
+      - name: "🔍 Debug init.c"
+        if: matrix.kernel.enable_ksu == true
+        working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
+        run: |
+          echo "=== First 30 lines of init.c ==="
+          head -30 drivers/kernelsu/core/init.c
+          echo ""
+          echo "=== bool ksu_late_loaded search ==="
+          grep -n "bool ksu_late_loaded\|ksu_late_loaded" drivers/kernelsu/core/init.c | head -10
+          echo ""
+          echo "=== Is symlink? ==="
+          ls -la drivers/kernelsu/core/init.c
+          echo ""
+          echo "=== Real path ==="
+          realpath drivers/kernelsu/core/init.c
+
       - name: "🔨 Build kernel"
         working-directory: ${{ env.WORK_DIR }}
         run: |
