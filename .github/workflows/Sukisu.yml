@@ -252,18 +252,32 @@ jobs:
           with open(path, 'r') as f:
               content = f.read()
           
-          marker = '/* YASK_LATE_LOADED */'
-          if marker not in content:
-              # Prepend unconditionally at the very top of the file
-              injection = marker + '\nbool ksu_late_loaded = false;\n\n'
-              with open(path, 'w') as f:
-                  f.write(injection + content)
-              print(f"✔ Fixed ksu_late_loaded at top of {path}")
-          else:
-              print("✔ Already fixed")
+          # Remove any previous injection
+          if '/* YASK_LATE_LOADED */' in content:
+              lines = content.split('\n')
+              lines = [l for l in lines if '/* YASK_LATE_LOADED */' not in l and 'ksu_late_loaded = false;' not in l or 'if' in l]
+              content = '\n'.join(lines)
+          
+          # Find the position after the first #include and insert there
+          # so bool and stdbool.h are available
+          lines = content.split('\n')
+          first_include = 0
+          for i, line in enumerate(lines):
+              if line.strip().startswith('#include'):
+                  first_include = i
+                  break
+          
+          # Insert after first include
+          lines.insert(first_include + 1, '#include <linux/types.h>')
+          lines.insert(first_include + 2, '/* YASK_LATE_LOADED */')
+          lines.insert(first_include + 3, 'bool ksu_late_loaded = false;')
+          
+          with open(path, 'w') as f:
+              f.write('\n'.join(lines))
+          print(f"✔ Fixed ksu_late_loaded after first include in {path}")
           PYEOF
-                    echo "=== Verifying fix ==="
-                    head -5 "$INIT_C"  
+                    echo "=== Verifying ==="
+                    head -10 "$INIT_C"  
 
       - name: "⚙️ Setup basic configs"
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
