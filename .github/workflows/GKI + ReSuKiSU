@@ -1,4 +1,4 @@
-name: "GKI+ReSuKISU+SuSFS"
+name: "GKI_ReSuKiSU"
 
 env:
   OUT_DIR: "out"
@@ -7,12 +7,9 @@ env:
 
 on:
   schedule:
-    #- cron: '0 0 * * 0'
+    - cron: '0 0 * * 0'
   workflow_dispatch:
-
-permissions:
-  contents: write
-
+        
 jobs:
   build-kernels:
     name: "🐎 Build YASK ${{ matrix.kernel.name }} kernel"
@@ -35,6 +32,7 @@ jobs:
               - "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-scripts-sign-builds.patch"
               - "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-scripts-Don-t-append-and-dirty-to-localversion.patch"
               - "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-scripts-do-not-ship-full-auto_localversion.patch"
+
     env:
       KERNEL_LOC_DIR: ${{ matrix.kernel.dir }}
       KERNEL_NAME: ${{ matrix.kernel.repo_name }}
