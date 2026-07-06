@@ -227,7 +227,13 @@ jobs:
               echo "ℹ susfs_def.h include already present, skipping"
             fi
 
-            if ! grep -q "susfs_is_current_ksu_domain" fs/namespace.c; then
+            # FIX: guard on CL_COPY_MNT_NS (the macro this block actually defines),
+            # not on susfs_is_current_ksu_domain — that identifier already appears
+            # elsewhere in the file from other successfully-applied hunks (as *calls*,
+            # not the extern/define block), so the old guard caused a false "already
+            # present" match and the extern/define block — including CL_COPY_MNT_NS —
+            # was silently never inserted.
+            if ! grep -q "^#define CL_COPY_MNT_NS" fs/namespace.c; then
               sed -i '/#include "internal.h"/a\
           \
           #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\
@@ -239,7 +245,7 @@ jobs:
           #endif // #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT' fs/namespace.c
               echo "✔ extern/define block inserted"
             else
-              echo "ℹ extern block already present, skipping"
+              echo "ℹ extern/define block already present, skipping"
             fi
 
             rm -f fs/namespace.c.rej
