@@ -1,10 +1,16 @@
-name: "GKI_ReSuKiSU"
+name: "Build CLO Kernel (SukiSu-Ultra + SUSFS v2)"
 
 env:
   OUT_DIR: "out"
   KERNEL_VERSION: "5.15"
   ANDROID_VERSION: "13"
-        
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
 jobs:
   build-kernels:
     name: "🐎 Build YASK ${{ matrix.kernel.name }} kernel"
@@ -27,7 +33,6 @@ jobs:
               - "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-scripts-sign-builds.patch"
               - "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-scripts-Don-t-append-and-dirty-to-localversion.patch"
               - "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-scripts-do-not-ship-full-auto_localversion.patch"
-
     env:
       KERNEL_LOC_DIR: ${{ matrix.kernel.dir }}
       KERNEL_NAME: ${{ matrix.kernel.repo_name }}
