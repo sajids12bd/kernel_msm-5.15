@@ -433,7 +433,7 @@ jobs:
       - name: "🔨 Build kernel"
         working-directory: ${{ env.WORK_DIR }}
         run: |
-          LTO=thin \
+          LTO=full \
           BUILD_CONFIG=${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}/build.config.gki.aarch64 \
           build/build.sh -j$(nproc --all)
 
@@ -482,7 +482,7 @@ jobs:
           find ./artifacts -name "Image.*" -exec cp {} AnyKernel3/ \;
 
           # Create ZIP
-          ZIP_NAME="Anykernel3_YASK-SukiSU-Ultra-CLO_$(date +'%Y-%m-%d').zip"
+          ZIP_NAME="Anykernel3_ReSukiSU-GKI_$(date +'%Y-%m-%d').zip"
           cd AnyKernel3
           zip -r9 "../$ZIP_NAME" * -x .git/*
           cd ..
