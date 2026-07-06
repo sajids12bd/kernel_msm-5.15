@@ -168,12 +168,18 @@ jobs:
           echo "🧹 Cleaning any previous KSU/SUSFS leftovers..."
           rm -rf ./KernelSU ./drivers/kernelsu ./SukiSU-Ultra ./ReSukiSU ./susfs4ksu
 
-          echo "📦 Cloning SUSFS (dev branch for 5.15, falling back to stable)..."
-          if git clone --depth=5 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android13-5.15-dev susfs4ksu; then
-            echo "✔ Cloned gki-android13-5.15-dev"
+          # NOTE: ReSukiSU is a SukiSU-Ultra fork, and SukiSU-Ultra-lineage kernels
+          # depend on macros (DEFAULT_KSU_MNT_ID, DEFAULT_KSU_MNT_GROUP_ID,
+          # VFSMOUNT_MNT_FLAGS_KSU_UNSHARED_MNT, etc.) that only exist in
+          # SukiSU-Ultra's own maintained SUSFS fork (ShirkNeko/susfs4ksu), not in
+          # upstream simonpunk/susfs4ksu. Using the vanilla upstream repo here causes
+          # fs/namespace.c to reference undeclared identifiers at build time.
+          echo "📦 Cloning SUSFS (SukiSU-Ultra fork, required for ReSukiSU compatibility)..."
+          if git clone --depth=5 https://github.com/ShirkNeko/susfs4ksu.git -b gki-android13-5.15 susfs4ksu; then
+            echo "✔ Cloned ShirkNeko/susfs4ksu gki-android13-5.15"
           else
-            echo "::warning::dev branch clone failed, falling back to stable gki-android13-5.15"
-            git clone --depth=5 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android13-5.15 susfs4ksu
+            echo "::error::Failed to clone ShirkNeko/susfs4ksu gki-android13-5.15 — check branch still exists"
+            exit 1
           fi
 
           [ -d "susfs4ksu" ] || { echo "❌ SUSFS clone failed!"; exit 1; }
