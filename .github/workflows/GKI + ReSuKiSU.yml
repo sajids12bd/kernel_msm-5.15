@@ -169,14 +169,23 @@ jobs:
           rm -rf ./KernelSU ./drivers/kernelsu ./SukiSU-Ultra ./ReSukiSU ./susfs4ksu
 
           echo "📦 Cloning SUSFS (dev branch for 5.15, falling back to stable)..."
-          if git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android13-5.15-dev susfs4ksu; then
+          if git clone --depth=5 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android13-5.15-dev susfs4ksu; then
             echo "✔ Cloned gki-android13-5.15-dev"
           else
             echo "::warning::dev branch clone failed, falling back to stable gki-android13-5.15"
-            git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android13-5.15 susfs4ksu
+            git clone --depth=5 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android13-5.15 susfs4ksu
           fi
 
           [ -d "susfs4ksu" ] || { echo "❌ SUSFS clone failed!"; exit 1; }
+
+          echo "🔎 SUSFS version info for this build:"
+          git -C susfs4ksu log -1 --format="  Commit:  %H%n  Date:    %ad%n  Subject: %s" --date=iso
+          TAG=$(git -C susfs4ksu describe --tags --exact-match 2>/dev/null || echo "none")
+          echo "  Tag:     $TAG"
+          echo "  Branch:  $(git -C susfs4ksu rev-parse --abbrev-ref HEAD)"
+          echo "----- Last 5 commits -----"
+          git -C susfs4ksu log -5 --oneline
+          echo "---------------------------"
 
           echo "📄 Installing SUSFS source files..."
           mkdir -p fs include/linux
@@ -432,6 +441,18 @@ jobs:
           LTO=full \
           BUILD_CONFIG=${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}/build.config.gki.aarch64 \
           build/build.sh -j$(nproc --all)
+
+      - name: "🩺 Diagnose build failure"
+        if: failure()
+        run: |
+          echo "=== Checking for OOM-killer activity ==="
+          sudo dmesg -T 2>/dev/null | grep -i -E "killed process|out of memory|oom" || echo "No OOM-killer entries found in dmesg"
+          echo ""
+          echo "=== Disk space at failure time ==="
+          df -h /
+          echo ""
+          echo "=== Memory at failure time ==="
+          free -h
 
       - name: "📁 Copy kernel image"
         working-directory: ${{ env.WORK_DIR }}/out/dist
