@@ -1,4 +1,4 @@
-name: "Build CLO Kernel (SukiSu-Ultra + SUSFS v2)"
+name: "GKI_ReSuKiSU"
 
 env:
   OUT_DIR: "out"
