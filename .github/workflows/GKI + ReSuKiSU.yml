@@ -133,7 +133,18 @@ jobs:
             local url="$1"
             local file=$(basename "$url")
             curl -L -o "$file" "$url"
-            patch -p1 < "$file" || echo "::warning::Hunks failed in $file"
+            patch -p1 --fuzz=3 < "$file"
+            local rej="${file%.patch}.rej"
+            REJ_FILES=$(find . -name "*.rej" -newer "$file" 2>/dev/null)
+            if [ -n "$REJ_FILES" ]; then
+              echo "::error::$file left rejected hunks:"
+              for f in $REJ_FILES; do
+                echo "----- $f -----"
+                cat "$f"
+                rm -f "$f"
+              done
+              echo "::warning::Continuing despite rejected hunks in $file — verify this file isn't load-bearing for the build"
+            fi
             rm -f "$file"
           }
 
@@ -182,9 +193,18 @@ jobs:
 
           echo "🔧 Applying SUSFS kernel patch..."
           if [ -f "susfs4ksu/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch" ]; then
-            patch -p1 -ui susfs4ksu/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch \
-              && echo "✅ SUSFS patch applied" \
-              || echo "::warning::SUSFS patch had issues, continuing..."
+            patch -p1 --fuzz=3 -ui susfs4ksu/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch \
+              && echo "✅ SUSFS patch applied cleanly"
+
+            REJ_FILES=$(find . -name "*.rej" 2>/dev/null)
+            if [ -n "$REJ_FILES" ]; then
+              echo "::error::SUSFS patch left rejected hunks — build will likely be broken:"
+              for f in $REJ_FILES; do
+                echo "----- $f -----"
+                cat "$f"
+              done
+              exit 1
+            fi
           else
             echo "::warning::50_add_susfs_in_gki-android13-5.15.patch not found, skipping"
           fi
