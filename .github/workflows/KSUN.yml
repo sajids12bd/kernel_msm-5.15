@@ -1,4 +1,4 @@
-name: "ULTRA-KSUN-SUSFS22-Kernel"
+name: "KernelSU-Next-SUSFS22-Build-FIXED"
 
 on:
   workflow_dispatch:
@@ -8,9 +8,7 @@ permissions:
 
 env:
   KERNEL_DIR: "kernel"
-  OUT_DIR: "out"
   CLANG_VERSION: "r547379"
-  CCACHE_DIR: ".ccache"
 
 jobs:
   build:
@@ -21,35 +19,21 @@ jobs:
     # =========================
     # 1. SYSTEM SETUP
     # =========================
-    - name: Setup dependencies
+    - name: Install dependencies
       run: |
         sudo apt update
         sudo apt install -y \
           git curl wget zip unzip rsync bc bison flex \
           build-essential libssl-dev python3 ccache
 
-    # =========================
-    # 2. CACHE (BIG SPEED BOOST)
-    # =========================
-    - name: Cache ccache
-      uses: actions/cache@v4
-      with:
-        path: .ccache
-        key: ccache-${{ runner.os }}-${{ github.sha }}
-        restore-keys: |
-          ccache-${{ runner.os }}
-
-    # =========================
-    # 3. FREE DISK
-    # =========================
-    - name: Free space
+    - name: Free disk space
       run: |
         df -h
         sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
         df -h
 
     # =========================
-    # 4. CLONE KERNEL (CLEAN GKI)
+    # 2. CLONE KERNEL (GKI ONLY)
     # =========================
     - name: Clone Kernel Source
       run: |
@@ -59,7 +43,7 @@ jobs:
           $KERNEL_DIR
 
     # =========================
-    # 5. CLANG TOOLCHAIN
+    # 3. CLANG TOOLCHAIN
     # =========================
     - name: Setup Clang
       run: |
@@ -69,12 +53,21 @@ jobs:
         echo "CLANG_PATH=$PWD/clang/bin" >> $GITHUB_ENV
 
     # =========================
-    # 6. KERNELSU NEXT
+    # 4. FIXED KERNELSU NEXT (NO AUTH ERROR)
     # =========================
     - name: KernelSU Next Setup
       working-directory: ${{ env.KERNEL_DIR }}
       run: |
-        git clone --depth=1 https://github.com/KernelSU/KernelSU.git
+        set -e
+
+        echo "Disabling git prompts..."
+        export GIT_TERMINAL_PROMPT=0
+
+        rm -rf KernelSU
+
+        git clone --depth=1 \
+          https://github.com/KernelSU/KernelSU.git \
+          KernelSU
 
         mkdir -p drivers/kernelsu
         cp -r KernelSU/kernel/* drivers/kernelsu/
@@ -84,11 +77,13 @@ jobs:
         echo "CONFIG_OVERLAY_FS=y" >> arch/arm64/configs/gki_defconfig
 
     # =========================
-    # 7. SUSFS 2.2 INTEGRATION
+    # 5. SUSFS 2.2
     # =========================
     - name: SUSFS 2.2 Setup
       working-directory: ${{ env.KERNEL_DIR }}
       run: |
+        set -e
+
         git clone --depth=1 \
           -b gki-android13-5.15 \
           https://github.com/ShirkNeko/susfs4ksu.git
@@ -100,131 +95,112 @@ jobs:
           susfs4ksu/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch || true
 
         cat <<EOF >> arch/arm64/configs/gki_defconfig
-        CONFIG_KSU_SUSFS=y
-        CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
-        CONFIG_KSU_SUSFS_SUS_PATH=y
-        CONFIG_KSU_SUSFS_SUS_MOUNT=y
-        CONFIG_KSU_SUSFS_ENABLE_LOG=y
-        CONFIG_KSU_SUSFS_TRY_UMOUNT=y
-        EOF
+CONFIG_KSU_SUSFS=y
+CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
+CONFIG_KSU_SUSFS_SUS_PATH=y
+CONFIG_KSU_SUSFS_SUS_MOUNT=y
+CONFIG_KSU_SUSFS_ENABLE_LOG=y
+CONFIG_KSU_SUSFS_TRY_UMOUNT=y
+EOF
 
     # =========================
-    # 8. PERFORMANCE TUNING
+    # 6. CUSTOM PATCH SYSTEM (SAFE VERSION)
     # =========================
-    - name: Kernel Optimizations
+    - name: Apply Custom Patches (SAFE MODE)
+      working-directory: ${{ env.KERNEL_DIR }}
+      run: |
+        set -e
+
+        PATCHES=(
+          # add your patches here
+          # "https://example.com/patch1.patch"
+        )
+
+        for p in "${PATCHES[@]}"; do
+          echo "Applying $p"
+          curl -L -o temp.patch "$p"
+
+          git apply temp.patch || patch -p1 --fuzz=3 < temp.patch || {
+            echo "❌ Patch failed: $p"
+            exit 1
+          }
+
+          rm -f temp.patch
+        done
+
+    # =========================
+    # 7. OPTIMIZATION CONFIG
+    # =========================
+    - name: Kernel Config Tuning
       working-directory: ${{ env.KERNEL_DIR }}
       run: |
         cat <<EOF >> arch/arm64/configs/gki_defconfig
 
-        CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y
-        CONFIG_BPF=y
-        CONFIG_KALLSYMS=y
-        CONFIG_TMPFS_XATTR=y
-        CONFIG_TMPFS_POSIX_ACL=y
-        CONFIG_DEBUG_INFO_BTF=n
-        CONFIG_LTO_CLANG_FULL=y
-        EOF
+CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y
+CONFIG_BPF=y
+CONFIG_KALLSYMS=y
+CONFIG_TMPFS_XATTR=y
+CONFIG_TMPFS_POSIX_ACL=y
+CONFIG_DEBUG_INFO_BTF=n
+EOF
 
     # =========================
-    # 9. BUILD SYSTEM
+    # 8. BUILD KERNEL
     # =========================
     - name: Build Kernel
       working-directory: ${{ env.KERNEL_DIR }}
       run: |
+        set -e
+
         export PATH=$CLANG_PATH:$PATH
         export ARCH=arm64
         export SUBARCH=arm64
 
-        export CC="ccache clang"
-        export CXX="ccache clang++"
-
-        export CCACHE_DIR=$GITHUB_WORKSPACE/.ccache
-        export CCACHE_COMPRESS=1
-        export CCACHE_MAXSIZE=2G
-
-        ccache -z
-
         make O=out gki_defconfig
 
         make -j$(nproc) O=out \
-          CC="ccache clang" \
-          LLVM=1 LLVM_IAS=1 \
+          CC=clang LLVM=1 LLVM_IAS=1 \
           2>&1 | tee build.log
 
-        ccache -s
-
     # =========================
-    # 10. VERIFY BUILD
+    # 9. VERIFY OUTPUT
     # =========================
-    - name: Verify Build
+    - name: Verify Build Output
       run: |
         test -f kernel/out/arch/arm64/boot/Image || {
-          echo "❌ Build failed: Image missing"
+          echo "❌ Kernel build failed"
           exit 1
         }
 
     # =========================
-    # 11. ANYKERNEL3 PACKAGING
+    # 10. ANYKERNEL3 PACKAGING
     # =========================
     - name: Package Kernel
       run: |
-        git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git anykernel
+        git clone --depth=1 https://github.com/osm0sis/AnyKernel3 anykernel
 
         cp kernel/out/arch/arm64/boot/Image anykernel/
 
-        ZIP="ULTRA-KSUN-SUSFS22-$(date +%Y%m%d).zip"
-
         cd anykernel
-        zip -r9 "../$ZIP" . -x ".git/*"
+        zip -r9 ../KernelSU_SUSFS22.zip . -x ".git/*"
         cd ..
 
-        echo "ZIP=$ZIP" >> $GITHUB_ENV
-
     # =========================
-    # 12. UPLOAD ARTIFACT
+    # 11. UPLOAD ARTIFACT
     # =========================
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: ULTRA-Kernel
-        path: ${{ env.ZIP }}
+        name: KernelSU-SUSFS22
+        path: KernelSU_SUSFS22.zip
 
     # =========================
-    # 13. RELEASE
+    # 12. RELEASE
     # =========================
     - name: GitHub Release
       uses: softprops/action-gh-release@v2
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        tag_name: ultra-kernel-${{ github.run_number }}
-        files: ${{ env.ZIP }}
-
-    # =========================
-    # 14. TELEGRAM NOTIFY
-    # =========================
-    - name: Telegram Notification
-      if: always()
-      run: |
-        STATUS="${{ job.status }}"
-        URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-
-        if [ "$STATUS" = "success" ]; then
-          TEXT="✅ ULTRA Kernel Build SUCCESS
-
-        📦 KernelSU Next + SUSFS 2.2
-        ⚡ LTO + CCache enabled
-        📅 $(date)
-        
-        🔗 $URL"
-                else
-                  TEXT="❌ ULTRA Kernel Build FAILED
-        
-        📅 $(date)
-        
-        🔗 $URL"
-                fi
-        
-                curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
-                  -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
-                  -d text="$TEXT"
+        tag_name: ksun-susfs22-${{ github.run_number }}
+        files: KernelSU_SUSFS22.zip
