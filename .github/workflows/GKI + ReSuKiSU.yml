@@ -438,9 +438,10 @@ jobs:
       - name: "🔨 Build kernel"
         working-directory: ${{ env.WORK_DIR }}
         run: |
+          set -o pipefail
           LTO=full \
           BUILD_CONFIG=${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}/build.config.gki.aarch64 \
-          build/build.sh -j$(nproc --all)
+          build/build.sh -j$(nproc --all) 2>&1 | tee "${{ env.WORK_DIR }}/build.log"
 
       - name: "🩺 Diagnose build failure"
         if: failure()
@@ -453,6 +454,31 @@ jobs:
           echo ""
           echo "=== Memory at failure time ==="
           free -h
+          echo ""
+
+          LOG_FILE="${{ env.WORK_DIR }}/build.log"
+          if [ -f "$LOG_FILE" ]; then
+            echo "=== Actual compiler/linker errors (with context) ==="
+            # Show each error/failure line plus a few lines before/after it,
+            # since that's usually where the real root cause lives.
+            grep -n -B5 -A2 -i -E \
+              "error:|error [0-9]+|undefined reference|No rule to make target|fatal error|Error [0-9]+|\*\*\* \[" \
+              "$LOG_FILE" | tail -300
+
+            echo ""
+            echo "=== Last 100 lines of build log (raw tail) ==="
+            tail -100 "$LOG_FILE"
+          else
+            echo "::warning::No build.log found — build may have failed before the build step ran."
+          fi
+
+      - name: "📤 Upload full build log"
+        if: failure()
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: ${{ matrix.kernel.name }}-build-log
+          path: ${{ env.WORK_DIR }}/build.log
+          retention-days: 3
 
       - name: "📁 Copy kernel image"
         working-directory: ${{ env.WORK_DIR }}/out/dist
