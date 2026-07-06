@@ -200,31 +200,31 @@ jobs:
             if [ -f "fs/namespace.c.rej" ] && ! grep -q "CONFIG_KSU_SUSFS_SUS_MOUNT" fs/namespace.c; then
               echo "🩹 Manually inserting SUS_MOUNT declarations into fs/namespace.c..."
             fi
-            python3 << 'PYEOF'
-            import os
-            path = "fs/namespace.c"
-            if os.path.exists("fs/namespace.c.rej"):
-                with open(path) as f:
-                    content = f.read()
+          python3 << 'PYEOF'
+          import os
+          path = "fs/namespace.c"
+          if os.path.exists("fs/namespace.c.rej"):
+              with open(path) as f:
+                  content = f.read()
 
-                if "CONFIG_KSU_SUSFS_SUS_MOUNT" not in content:
-                    anchor = '#include "pnode.h"\n#include "internal.h"\n'
-                    block = (
-                        '\n#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\n'
-                        'extern bool susfs_is_current_ksu_domain(void);\n'
-                        'extern struct static_key_true susfs_is_sdcard_android_data_not_decrypted;\n\n'
-                        '#define CL_COPY_MNT_NS BIT(25) /* used by copy_mnt_ns() */\n\n'
-                        '#endif // #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\n'
-                    )
-                    if anchor in content:
-                        content = content.replace(anchor, anchor + block, 1)
-                        with open(path, "w") as f:
-                            f.write(content)
-                        print("✔ SUS_MOUNT block inserted into fs/namespace.c")
-                        os.remove("fs/namespace.c.rej")
-                    else:
-                        print("::error::Anchor includes not found in fs/namespace.c — manual review needed")
-            PYEOF
+              if "CONFIG_KSU_SUSFS_SUS_MOUNT" not in content:
+                  anchor = '#include "pnode.h"\n#include "internal.h"\n'
+                  block = (
+                      '\n#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\n'
+                      'extern bool susfs_is_current_ksu_domain(void);\n'
+                      'extern struct static_key_true susfs_is_sdcard_android_data_not_decrypted;\n\n'
+                      '#define CL_COPY_MNT_NS BIT(25) /* used by copy_mnt_ns() */\n\n'
+                      '#endif // #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\n'
+                  )
+                  if anchor in content:
+                      content = content.replace(anchor, anchor + block, 1)
+                      with open(path, "w") as f:
+                          f.write(content)
+                      print("✔ SUS_MOUNT block inserted into fs/namespace.c")
+                      os.remove("fs/namespace.c.rej")
+                  else:
+                      print("::error::Anchor includes not found in fs/namespace.c — manual review needed")
+          PYEOF
 
             REJ_FILES=$(find . -name "*.rej" 2>/dev/null)
             if [ -n "$REJ_FILES" ]; then
