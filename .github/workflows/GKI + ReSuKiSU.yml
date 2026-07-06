@@ -177,7 +177,6 @@ jobs:
 
           echo "🔎 SUSFS version info for this build:"
           git -C susfs4ksu log -1 --format="  Commit:  %H%n  Date:    %ad%n  Subject: %s" --date=iso
-          echo "  Branch:  $(git -C susfs4ksu rev-parse --abbrev-ref HEAD)"
           git -C susfs4ksu log -5 --oneline
 
           echo "📄 Installing SUSFS source files..."
@@ -203,12 +202,9 @@ jobs:
           if patch -p1 --fuzz=3 -ui susfs4ksu/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch; then
             echo "✅ SUSFS patch applied cleanly"
           else
-            echo "::warning::SUSFS patch had rejected hunks — checking if they're the known/expected fs/namespace.c header hunk..."
+            echo "::warning::SUSFS patch had rejected hunks — checking if it's the known fs/namespace.c header hunk..."
           fi
 
-          # Known-fragile hunk: fs/namespace.c's include block near line 32 often rejects
-          # due to context drift (offsets in surrounding includes), even though the
-          # insertion itself is trivial. Apply it manually if it's the ONLY reject.
           if [ -f "fs/namespace.c.rej" ]; then
             OTHER_REJ=$(find . -name "*.rej" ! -name "namespace.c.rej" 2>/dev/null)
             if [ -n "$OTHER_REJ" ]; then
@@ -219,73 +215,38 @@ jobs:
               exit 1
             fi
 
-            echo "🩹 Manually applying the known fs/namespace.c header hunk..."
-            python3 << 'PYEOF'
-          import os, sys
+            echo "🩹 Manually applying the known fs/namespace.c header hunk (via sed)..."
 
-          path = "fs/namespace.c"
-          with open(path, encoding="utf-8", newline="") as f:
-              content = f.read()
+            if ! grep -q "susfs_def.h" fs/namespace.c; then
+              sed -i '/#include <linux\/mnt_idmapping.h>/a\
+#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\
+#include <linux/susfs_def.h>\
+#endif // #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT' fs/namespace.c
+              echo "✔ susfs_def.h include block inserted"
+            else
+              echo "ℹ susfs_def.h include already present, skipping"
+            fi
 
-          if "CONFIG_KSU_SUSFS_SUS_MOUNT" in content and "susfs_def.h" in content:
-              print("ℹ Header hunk already present — nothing to do")
-              os.remove("fs/namespace.c.rej")
-              sys.exit(0)
+            if ! grep -q "susfs_is_current_ksu_domain" fs/namespace.c; then
+              sed -i '/#include "internal.h"/a\
+\
+#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\
+extern bool susfs_is_current_ksu_domain(void);\
+extern struct static_key_true susfs_is_sdcard_android_data_not_decrypted;\
+\
+#define CL_COPY_MNT_NS BIT(25) /* used by copy_mnt_ns() */\
+\
+#endif // #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT' fs/namespace.c
+              echo "✔ extern/define block inserted"
+            else
+              echo "ℹ extern block already present, skipping"
+            fi
 
-          lines = content.splitlines(keepends=True)
+            rm -f fs/namespace.c.rej
 
-          def nl_of(line):
-              return "\r\n" if line.endswith("\r\n") else "\n"
-
-          # --- Insert #include <linux/susfs_def.h> block after mnt_idmapping.h include ---
-          mnt_idx = None
-          for i, line in enumerate(lines):
-              if '#include <linux/mnt_idmapping.h>' in line:
-                  mnt_idx = i
-          if mnt_idx is None:
-              print("::error::Could not find mnt_idmapping.h include in fs/namespace.c")
-              sys.exit(1)
-
-          if "susfs_def.h" not in "".join(lines):
-              nl = nl_of(lines[mnt_idx])
-              include_block = [
-                  "#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT" + nl,
-                  "#include <linux/susfs_def.h>" + nl,
-                  "#endif // #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT" + nl,
-              ]
-              lines = lines[:mnt_idx + 1] + include_block + lines[mnt_idx + 1:]
-              print(f"✔ susfs_def.h include block inserted after line {mnt_idx + 1}")
-
-          # --- Insert extern/define block after #include "internal.h" ---
-          internal_idx = None
-          for i, line in enumerate(lines):
-              if '#include "internal.h"' in line:
-                  internal_idx = i
-          if internal_idx is None:
-              print("::error::Could not find internal.h include in fs/namespace.c")
-              sys.exit(1)
-
-          if "susfs_is_current_ksu_domain" not in "".join(lines):
-              nl = nl_of(lines[internal_idx])
-              extern_block = [
-                  nl,
-                  "#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT" + nl,
-                  "extern bool susfs_is_current_ksu_domain(void);" + nl,
-                  "extern struct static_key_true susfs_is_sdcard_android_data_not_decrypted;" + nl,
-                  nl,
-                  "#define CL_COPY_MNT_NS BIT(25) /* used by copy_mnt_ns() */" + nl,
-                  nl,
-                  "#endif // #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT" + nl,
-              ]
-              lines = lines[:internal_idx + 1] + extern_block + lines[internal_idx + 1:]
-              print(f"✔ extern/define block inserted after line {internal_idx + 1}")
-
-          with open(path, "w", encoding="utf-8", newline="") as f:
-              f.write("".join(lines))
-
-          os.remove("fs/namespace.c.rej")
-          print("✔ fs/namespace.c header hunk manually applied")
-          PYEOF
+            echo "----- Context after insertion (for verification) -----"
+            grep -n -A3 -B1 "susfs_def.h\|CL_COPY_MNT_NS\|susfs_is_current_ksu_domain" fs/namespace.c || true
+            echo "--------------------------------------------------------"
           fi
 
           REJ_FILES=$(find . -name "*.rej" 2>/dev/null)
@@ -298,8 +259,9 @@ jobs:
           fi
 
           echo "🔎 Sanity check: confirming required identifiers are now reachable..."
-          grep -q "susfs_def.h" fs/namespace.c && echo "✔ susfs_def.h included" || { echo "❌ susfs_def.h include missing"; exit 1; }
-          grep -q "CL_COPY_MNT_NS" fs/namespace.c && echo "✔ CL_COPY_MNT_NS defined" || { echo "❌ CL_COPY_MNT_NS missing"; exit 1; }
+          grep -q "#include <linux/susfs_def.h>" fs/namespace.c && echo "✔ susfs_def.h included" || { echo "❌ susfs_def.h include missing"; exit 1; }
+          grep -q "^#define CL_COPY_MNT_NS" fs/namespace.c && echo "✔ CL_COPY_MNT_NS defined" || { echo "❌ CL_COPY_MNT_NS missing"; exit 1; }
+          grep -q "extern struct static_key_true susfs_is_sdcard_android_data_not_decrypted;" fs/namespace.c && echo "✔ susfs_is_sdcard_android_data_not_decrypted declared" || { echo "❌ susfs_is_sdcard_android_data_not_decrypted missing"; exit 1; }
 
           rm -rf susfs4ksu
 
@@ -313,10 +275,8 @@ jobs:
           echo "✔ drivers/kernelsu present"
 
           echo "📐 Adding KSU + SUSFS configs..."
-          export CONFIG_FILE="arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
-          python3 << 'PYEOF'
-          import os
-          configs = """
+          CONFIG_FILE="arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
+          cat >> "$CONFIG_FILE" << 'EOF'
           CONFIG_KSU=y
           CONFIG_KPROBES=y
           CONFIG_HAVE_KPROBES=y
@@ -337,12 +297,8 @@ jobs:
           CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
           CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
           CONFIG_DEBUG_INFO_BTF=n
-          """
-          config_file = os.environ["CONFIG_FILE"]
-          with open(config_file, 'a') as f:
-              f.write(configs.strip() + '\n')
-          print(f"✔ ReSukiSU + SUSFS configs added to {config_file}")
-          PYEOF
+          EOF
+          echo "✔ ReSukiSU + SUSFS configs added to $CONFIG_FILE"
 
           echo "🎉 ReSukiSU + SUSFS (pinned v2.2.0-r2 pairing) integrated!"
 
