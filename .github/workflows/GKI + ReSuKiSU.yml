@@ -178,9 +178,7 @@ jobs:
           echo "🔎 SUSFS version info for this build:"
           git -C susfs4ksu log -1 --format="  Commit:  %H%n  Date:    %ad%n  Subject: %s" --date=iso
           echo "  Branch:  $(git -C susfs4ksu rev-parse --abbrev-ref HEAD)"
-          echo "----- Last 5 commits -----"
           git -C susfs4ksu log -5 --oneline
-          echo "---------------------------"
 
           echo "📄 Installing SUSFS source files..."
           mkdir -p fs include/linux
@@ -193,35 +191,115 @@ jobs:
             && echo "✔ Copied include/linux/* from susfs4ksu" \
             || { echo "❌ Failed to copy susfs headers!"; exit 1; }
 
-          echo "🔧 Applying SUSFS kernel patch..."
-          if [ -f "susfs4ksu/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch" ]; then
-            if patch -p1 --fuzz=3 -ui susfs4ksu/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch; then
-              echo "✅ SUSFS patch applied cleanly"
-            else
-              echo "::error::SUSFS patch failed to apply cleanly against this kernel tree."
-              echo "This usually means the pinned SUSFS commit no longer matches this GKI branch/tag."
-              find . -name "*.rej" -exec echo "----- {} -----" \; -exec cat {} \;
-              exit 1
-            fi
+          [ -f "include/linux/susfs_def.h" ] || { echo "❌ include/linux/susfs_def.h missing after copy!"; exit 1; }
+          echo "✔ include/linux/susfs_def.h present"
 
-            REJ_FILES=$(find . -name "*.rej" 2>/dev/null)
-            if [ -n "$REJ_FILES" ]; then
-              echo "::error::SUSFS patch left rejected hunks — build will likely be broken:"
-              for f in $REJ_FILES; do
-                echo "----- $f -----"
-                cat "$f"
-              done
-              exit 1
-            fi
-          else
+          echo "🔧 Applying SUSFS kernel patch..."
+          if [ ! -f "susfs4ksu/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch" ]; then
             echo "::error::50_add_susfs_in_gki-android13-5.15.patch not found — cannot continue safely"
             exit 1
           fi
 
-          # Note: the scope-minimized manual hook patch is intentionally skipped here.
-          # ReSukiSU ships its hooks built-in, so applying susfs4ksu's manual hook
-          # patch on top is unnecessary and can conflict — see:
-          # https://resukisu.github.io/guide/build.html#susfs
+          if patch -p1 --fuzz=3 -ui susfs4ksu/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch; then
+            echo "✅ SUSFS patch applied cleanly"
+          else
+            echo "::warning::SUSFS patch had rejected hunks — checking if they're the known/expected fs/namespace.c header hunk..."
+          fi
+
+          # Known-fragile hunk: fs/namespace.c's include block near line 32 often rejects
+          # due to context drift (offsets in surrounding includes), even though the
+          # insertion itself is trivial. Apply it manually if it's the ONLY reject.
+          if [ -f "fs/namespace.c.rej" ]; then
+            OTHER_REJ=$(find . -name "*.rej" ! -name "namespace.c.rej" 2>/dev/null)
+            if [ -n "$OTHER_REJ" ]; then
+              echo "::error::Unexpected rejected hunks outside fs/namespace.c — stopping, do not paper over:"
+              for f in $OTHER_REJ; do
+                echo "----- $f -----"; cat "$f"
+              done
+              exit 1
+            fi
+
+            echo "🩹 Manually applying the known fs/namespace.c header hunk..."
+            python3 << 'PYEOF'
+          import os, sys
+
+          path = "fs/namespace.c"
+          with open(path, encoding="utf-8", newline="") as f:
+              content = f.read()
+
+          if "CONFIG_KSU_SUSFS_SUS_MOUNT" in content and "susfs_def.h" in content:
+              print("ℹ Header hunk already present — nothing to do")
+              os.remove("fs/namespace.c.rej")
+              sys.exit(0)
+
+          lines = content.splitlines(keepends=True)
+
+          def nl_of(line):
+              return "\r\n" if line.endswith("\r\n") else "\n"
+
+          # --- Insert #include <linux/susfs_def.h> block after mnt_idmapping.h include ---
+          mnt_idx = None
+          for i, line in enumerate(lines):
+              if '#include <linux/mnt_idmapping.h>' in line:
+                  mnt_idx = i
+          if mnt_idx is None:
+              print("::error::Could not find mnt_idmapping.h include in fs/namespace.c")
+              sys.exit(1)
+
+          if "susfs_def.h" not in "".join(lines):
+              nl = nl_of(lines[mnt_idx])
+              include_block = [
+                  "#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT" + nl,
+                  "#include <linux/susfs_def.h>" + nl,
+                  "#endif // #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT" + nl,
+              ]
+              lines = lines[:mnt_idx + 1] + include_block + lines[mnt_idx + 1:]
+              print(f"✔ susfs_def.h include block inserted after line {mnt_idx + 1}")
+
+          # --- Insert extern/define block after #include "internal.h" ---
+          internal_idx = None
+          for i, line in enumerate(lines):
+              if '#include "internal.h"' in line:
+                  internal_idx = i
+          if internal_idx is None:
+              print("::error::Could not find internal.h include in fs/namespace.c")
+              sys.exit(1)
+
+          if "susfs_is_current_ksu_domain" not in "".join(lines):
+              nl = nl_of(lines[internal_idx])
+              extern_block = [
+                  nl,
+                  "#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT" + nl,
+                  "extern bool susfs_is_current_ksu_domain(void);" + nl,
+                  "extern struct static_key_true susfs_is_sdcard_android_data_not_decrypted;" + nl,
+                  nl,
+                  "#define CL_COPY_MNT_NS BIT(25) /* used by copy_mnt_ns() */" + nl,
+                  nl,
+                  "#endif // #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT" + nl,
+              ]
+              lines = lines[:internal_idx + 1] + extern_block + lines[internal_idx + 1:]
+              print(f"✔ extern/define block inserted after line {internal_idx + 1}")
+
+          with open(path, "w", encoding="utf-8", newline="") as f:
+              f.write("".join(lines))
+
+          os.remove("fs/namespace.c.rej")
+          print("✔ fs/namespace.c header hunk manually applied")
+          PYEOF
+          fi
+
+          REJ_FILES=$(find . -name "*.rej" 2>/dev/null)
+          if [ -n "$REJ_FILES" ]; then
+            echo "::error::Rejected hunks remain after manual fix — build will likely be broken:"
+            for f in $REJ_FILES; do
+              echo "----- $f -----"; cat "$f"
+            done
+            exit 1
+          fi
+
+          echo "🔎 Sanity check: confirming required identifiers are now reachable..."
+          grep -q "susfs_def.h" fs/namespace.c && echo "✔ susfs_def.h included" || { echo "❌ susfs_def.h include missing"; exit 1; }
+          grep -q "CL_COPY_MNT_NS" fs/namespace.c && echo "✔ CL_COPY_MNT_NS defined" || { echo "❌ CL_COPY_MNT_NS missing"; exit 1; }
 
           rm -rf susfs4ksu
 
@@ -233,9 +311,6 @@ jobs:
             exit 1
           fi
           echo "✔ drivers/kernelsu present"
-
-          echo "🔎 ReSukiSU version info for this build:"
-          git -C KernelSU log -1 --format="  Commit:  %H%n  Date:    %ad%n  Subject: %s" --date=iso
 
           echo "📐 Adding KSU + SUSFS configs..."
           export CONFIG_FILE="arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
