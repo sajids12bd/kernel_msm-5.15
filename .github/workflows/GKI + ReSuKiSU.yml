@@ -159,7 +159,7 @@ jobs:
           echo "CONFIG_BBG=y" >> arch/arm64/configs/${{ env.DEFCONFIG_NAME }}
           sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/selinux/selinux,baseband_guard/ } }' security/Kconfig
 
-      - name: "🔧 Setup ReSukiSU with SUSFS (latest) integration"
+      - name: "🔧 Setup ReSukiSU with SUSFS (pinned compatible commit)"
         if: matrix.kernel.enable_ksu == true
         working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
@@ -168,19 +168,10 @@ jobs:
           echo "🧹 Cleaning any previous KSU/SUSFS leftovers..."
           rm -rf ./KernelSU ./drivers/kernelsu ./SukiSU-Ultra ./ReSukiSU ./susfs4ksu
 
-          # NOTE: ReSukiSU is a SukiSU-Ultra fork, and SukiSU-Ultra-lineage kernels
-          # depend on macros (DEFAULT_KSU_MNT_ID, DEFAULT_KSU_MNT_GROUP_ID,
-          # VFSMOUNT_MNT_FLAGS_KSU_UNSHARED_MNT, etc.) that only exist in
-          # SukiSU-Ultra's own maintained SUSFS fork (ShirkNeko/susfs4ksu), not in
-          # upstream simonpunk/susfs4ksu. Using the vanilla upstream repo here causes
-          # fs/namespace.c to reference undeclared identifiers at build time.
-          echo "📦 Cloning SUSFS (SukiSU-Ultra fork, required for ReSukiSU compatibility)..."
-          if git clone --depth=5 https://github.com/ShirkNeko/susfs4ksu.git -b gki-android13-5.15 susfs4ksu; then
-            echo "✔ Cloned ShirkNeko/susfs4ksu gki-android13-5.15"
-          else
-            echo "::error::Failed to clone ShirkNeko/susfs4ksu gki-android13-5.15 — check branch still exists"
-            exit 1
-          fi
+          echo "📦 Cloning SUSFS (pinned to known-compatible commit for this ReSukiSU version)..."
+          git clone https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android13-5.15 susfs4ksu
+          git -C susfs4ksu checkout 7d032feca40b053f99d7bc4ebf93c91903ac5769
+          echo "✔ Checked out susfs4ksu @ 7d032feca40b053f99d7bc4ebf93c91903ac5769 (verified compatible with ReSukiSU 9a335d11)"
 
           [ -d "susfs4ksu" ] || { echo "❌ SUSFS clone failed!"; exit 1; }
 
@@ -444,13 +435,12 @@ jobs:
       - name: "🔨 Build kernel"
         working-directory: ${{ env.WORK_DIR }}
         run: |
-          set -o pipefail
-          LTO=full \
+          LTO=thin \
           BUILD_CONFIG=${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}/build.config.gki.aarch64 \
-          build/build.sh -j$(nproc --all) 2>&1 | tee "${{ env.WORK_DIR }}/build.log"
+          build/build.sh -j$(nproc --all)
 
       - name: "🩺 Diagnose build failure"
-        if: failure()
+        if: failure() || cancelled()
         run: |
           echo "=== Checking for OOM-killer activity ==="
           sudo dmesg -T 2>/dev/null | grep -i -E "killed process|out of memory|oom" || echo "No OOM-killer entries found in dmesg"
@@ -460,31 +450,6 @@ jobs:
           echo ""
           echo "=== Memory at failure time ==="
           free -h
-          echo ""
-
-          LOG_FILE="${{ env.WORK_DIR }}/build.log"
-          if [ -f "$LOG_FILE" ]; then
-            echo "=== Actual compiler/linker errors (with context) ==="
-            # Show each error/failure line plus a few lines before/after it,
-            # since that's usually where the real root cause lives.
-            grep -n -B5 -A2 -i -E \
-              "error:|error [0-9]+|undefined reference|No rule to make target|fatal error|Error [0-9]+|\*\*\* \[" \
-              "$LOG_FILE" | tail -300
-
-            echo ""
-            echo "=== Last 100 lines of build log (raw tail) ==="
-            tail -100 "$LOG_FILE"
-          else
-            echo "::warning::No build.log found — build may have failed before the build step ran."
-          fi
-
-      - name: "📤 Upload full build log"
-        if: failure()
-        uses: actions/upload-artifact@v4.6.2
-        with:
-          name: ${{ matrix.kernel.name }}-build-log
-          path: ${{ env.WORK_DIR }}/build.log
-          retention-days: 3
 
       - name: "📁 Copy kernel image"
         working-directory: ${{ env.WORK_DIR }}/out/dist
