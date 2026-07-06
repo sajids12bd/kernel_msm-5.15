@@ -277,9 +277,9 @@ jobs:
             fi
           }
 
-          # Check SukiSU-Ultra directory
-          ( [ -d "SukiSU-Ultra" ] || [ -d "KernelSU" ] ) && check "SukiSU-Ultra/KernelSU directory exists" "ok" || check "SukiSU-Ultra/KernelSU directory exists" "fail"
-          
+          # Check ReSukiSU/KernelSU directory
+          ( [ -d "ReSukiSU" ] || [ -d "KernelSU" ] ) && check "ReSukiSU/KernelSU directory exists" "ok" || check "ReSukiSU/KernelSU directory exists" "fail"
+
           # Check symlink
           [ -f "drivers/kernelsu/Makefile" ] && check "drivers/kernelsu symlink valid" "ok" || check "drivers/kernelsu symlink valid" "fail"
 
@@ -302,8 +302,8 @@ jobs:
           CONFIG_FILE="arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
           grep -q "CONFIG_KSU=y" "$CONFIG_FILE" && check "CONFIG_KSU=y present" "ok" || check "CONFIG_KSU=y present" "fail"
           grep -q "CONFIG_KSU_SUSFS=y" "$CONFIG_FILE" && check "CONFIG_KSU_SUSFS=y present" "ok" || check "CONFIG_KSU_SUSFS=y present" "fail"
-          grep -q "CONFIG_KPM=y" "$CONFIG_FILE" && check "CONFIG_KPM=y present" "ok" || check "CONFIG_KPM=y present" "fail"
-          grep -q "CONFIG_KSU_WITH_KPROBES=n" "$CONFIG_FILE" && check "CONFIG_KSU_WITH_KPROBES=n present" "ok" || check "CONFIG_KSU_WITH_KPROBES=n present" "fail"
+          # Note: CONFIG_KPM / CONFIG_KSU_WITH_KPROBES were SukiSU-Ultra-specific
+          # and are not part of the ReSukiSU integration, so they're no longer checked here.
           grep -q "CONFIG_DEBUG_INFO_BTF=n" "$CONFIG_FILE" && check "CONFIG_DEBUG_INFO_BTF=n present" "ok" || check "CONFIG_DEBUG_INFO_BTF=n present" "fail"
           grep -q "CONFIG_OVERLAY_FS=y" "$CONFIG_FILE" && check "CONFIG_OVERLAY_FS=y present" "ok" || check "CONFIG_OVERLAY_FS=y present" "fail"
 
@@ -404,7 +404,7 @@ jobs:
           • Kernel: \`Linux 5.15\`
           • Android: \`13-16\`
           • Base: \`GKI & CLO\`
-          • KSU: \`SukiSU-Ultra\`
+          • KSU: \`ReSukiSU\`
           • SUSFS: \`Enabled (GKI A13-5.15)\`
           • LTO: \`Full\`
           • Optimization: \`-O2\`
@@ -422,7 +422,7 @@ jobs:
           • KernelSU-Next
           • Rissu-KSU
           • KowSU
-          • SukiSU-Ultra
+          • ReSukiSU
 
           🕐 *Build Date:* $(date '+%Y-%m-%d %H:%M:%S UTC')
           📦 *Package:* \`${{ env.ZIP_NAME }}\`
@@ -444,7 +444,7 @@ jobs:
           • Kernel: \`Linux 5.15\`
           • Android: \`13-16\`
           • Base: \`GKI & CLO\`
-          • KSU: \`SukiSU-Ultra\`
+          • KSU: \`ReSukiSU\`
           • SUSFS: \`Enabled (GKI A13-5.15)\`
           • LTO: \`Full\`
           • Optimization: \`-O2\`
