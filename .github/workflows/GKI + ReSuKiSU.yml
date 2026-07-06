@@ -51,10 +51,26 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y repo rsync aria2 pahole dwarves
 
-      - name: 📐 Setup SWAP 10GB
+      - name: "🧹 Free up disk space"
+        run: |
+          echo "Before cleanup:"
+          df -h /
+
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo rm -rf /usr/local/.ghcup
+          sudo rm -rf /usr/share/swift
+          sudo docker image prune --all --force 2>/dev/null || true
+
+          echo "After cleanup:"
+          df -h /
+
+      - name: 📐 Setup SWAP 20GB
         uses: pierotofy/set-swap-space@master
         with:
-          swap-size-gb: 10
+          swap-size-gb: 20
 
       - name: 📐 Tune Swap
         run: |
@@ -335,6 +351,15 @@ jobs:
           fi
 
 
+
+      - name: "📊 Pre-build resource check"
+        run: |
+          echo "=== Disk space ==="
+          df -h /
+          echo "=== Memory ==="
+          free -h
+          echo "=== Swap ==="
+          swapon --show
 
       - name: "🔨 Build kernel"
         working-directory: ${{ env.WORK_DIR }}
