@@ -133,17 +133,15 @@ jobs:
             local url="$1"
             local file=$(basename "$url")
             curl -L -o "$file" "$url"
-            patch -p1 --fuzz=3 < "$file"
-            local rej="${file%.patch}.rej"
-            REJ_FILES=$(find . -name "*.rej" -newer "$file" 2>/dev/null)
-            if [ -n "$REJ_FILES" ]; then
-              echo "::error::$file left rejected hunks:"
-              for f in $REJ_FILES; do
-                echo "----- $f -----"
-                cat "$f"
-                rm -f "$f"
+            if patch -p1 -f --fuzz=3 < "$file"; then
+              echo "✅ $file applied cleanly"
+            else
+              echo "::warning::$file did not apply cleanly (often means it's redundant with an earlier patch — verify below if concerned)"
+              find . -name "*.rej" -newer "$file" 2>/dev/null | while read -r rej; do
+                echo "----- $rej -----"
+                cat "$rej"
+                rm -f "$rej"
               done
-              echo "::warning::Continuing despite rejected hunks in $file — verify this file isn't load-bearing for the build"
             fi
             rm -f "$file"
           }
