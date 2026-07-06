@@ -159,7 +159,7 @@ jobs:
           echo "CONFIG_BBG=y" >> arch/arm64/configs/${{ env.DEFCONFIG_NAME }}
           sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/selinux/selinux,baseband_guard/ } }' security/Kconfig
 
-      - name: "🔧 Setup ReSukiSU with SUSFS (pinned compatible commit)"
+      - name: "🔧 Setup ReSukiSU with SUSFS (pinned compatible commit pair — v2.2.0-r2)"
         if: matrix.kernel.enable_ksu == true
         working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
@@ -168,17 +168,15 @@ jobs:
           echo "🧹 Cleaning any previous KSU/SUSFS leftovers..."
           rm -rf ./KernelSU ./drivers/kernelsu ./SukiSU-Ultra ./ReSukiSU ./susfs4ksu
 
-          echo "📦 Cloning SUSFS (pinned to known-compatible commit for this ReSukiSU version)..."
+          echo "📦 Cloning SUSFS (pinned commit, matches ReSukiSU-GKI v2.2.0-r2 release pairing)..."
           git clone https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android13-5.15 susfs4ksu
-          git -C susfs4ksu checkout 7d032feca40b053f99d7bc4ebf93c91903ac5769
-          echo "✔ Checked out susfs4ksu @ 7d032feca40b053f99d7bc4ebf93c91903ac5769 (verified compatible with ReSukiSU 9a335d11)"
+          git -C susfs4ksu checkout 65ea8683c794cc309c3b0c4e6b57c1d972ca9a76
+          echo "✔ Checked out susfs4ksu @ 65ea8683c794cc309c3b0c4e6b57c1d972ca9a76"
 
           [ -d "susfs4ksu" ] || { echo "❌ SUSFS clone failed!"; exit 1; }
 
           echo "🔎 SUSFS version info for this build:"
           git -C susfs4ksu log -1 --format="  Commit:  %H%n  Date:    %ad%n  Subject: %s" --date=iso
-          TAG=$(git -C susfs4ksu describe --tags --exact-match 2>/dev/null || echo "none")
-          echo "  Tag:     $TAG"
           echo "  Branch:  $(git -C susfs4ksu rev-parse --abbrev-ref HEAD)"
           echo "----- Last 5 commits -----"
           git -C susfs4ksu log -5 --oneline
@@ -197,55 +195,14 @@ jobs:
 
           echo "🔧 Applying SUSFS kernel patch..."
           if [ -f "susfs4ksu/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch" ]; then
-            patch -p1 --fuzz=3 -ui susfs4ksu/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch \
-              && echo "✅ SUSFS patch applied cleanly"
-
-            # Known-fragile hunk: fs/namespace.c SUS_MOUNT declarations often reject
-            # due to upstream context drift even though the actual insertion is trivial.
-            # Apply it directly if the patch left it out.
-            if [ -f "fs/namespace.c.rej" ] && ! grep -q "CONFIG_KSU_SUSFS_SUS_MOUNT" fs/namespace.c; then
-              echo "🩹 Manually inserting SUS_MOUNT declarations into fs/namespace.c..."
+            if patch -p1 --fuzz=3 -ui susfs4ksu/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch; then
+              echo "✅ SUSFS patch applied cleanly"
+            else
+              echo "::error::SUSFS patch failed to apply cleanly against this kernel tree."
+              echo "This usually means the pinned SUSFS commit no longer matches this GKI branch/tag."
+              find . -name "*.rej" -exec echo "----- {} -----" \; -exec cat {} \;
+              exit 1
             fi
-          python3 << 'PYEOF'
-          import os
-          path = "fs/namespace.c"
-
-          if not os.path.exists("fs/namespace.c.rej"):
-              print("ℹ fs/namespace.c.rej not present — nothing to fix here")
-          else:
-              with open(path, encoding="utf-8", newline="") as f:
-                  content = f.read()
-
-              if "CONFIG_KSU_SUSFS_SUS_MOUNT" in content:
-                  print("ℹ CONFIG_KSU_SUSFS_SUS_MOUNT already present in fs/namespace.c — removing stale .rej")
-                  os.remove("fs/namespace.c.rej")
-              else:
-                  lines = content.splitlines(keepends=True)
-                  target_idx = None
-                  for i, line in enumerate(lines):
-                      if '#include "internal.h"' in line:
-                          target_idx = i
-                  if target_idx is None:
-                      print("::error::Could not find '#include \"internal.h\"' line in fs/namespace.c — manual review needed")
-                  else:
-                      nl = "\r\n" if lines[target_idx].endswith("\r\n") else "\n"
-                      block_lines = [
-                          nl,
-                          "#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT" + nl,
-                          "extern bool susfs_is_current_ksu_domain(void);" + nl,
-                          "extern struct static_key_true susfs_is_sdcard_android_data_not_decrypted;" + nl,
-                          nl,
-                          "#define CL_COPY_MNT_NS BIT(25) /* used by copy_mnt_ns() */" + nl,
-                          nl,
-                          "#endif // #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT" + nl,
-                      ]
-                      new_lines = lines[:target_idx + 1] + block_lines + lines[target_idx + 1:]
-                      with open(path, "w", encoding="utf-8", newline="") as f:
-                          f.write("".join(new_lines))
-                      print(f"✔ SUS_MOUNT block inserted into fs/namespace.c after line {target_idx + 1}")
-                      os.remove("fs/namespace.c.rej")
-          PYEOF
-
 
             REJ_FILES=$(find . -name "*.rej" 2>/dev/null)
             if [ -n "$REJ_FILES" ]; then
@@ -257,7 +214,8 @@ jobs:
               exit 1
             fi
           else
-            echo "::warning::50_add_susfs_in_gki-android13-5.15.patch not found, skipping"
+            echo "::error::50_add_susfs_in_gki-android13-5.15.patch not found — cannot continue safely"
+            exit 1
           fi
 
           # Note: the scope-minimized manual hook patch is intentionally skipped here.
@@ -267,14 +225,17 @@ jobs:
 
           rm -rf susfs4ksu
 
-          echo "📦 Installing ReSukiSU (latest tagged release)..."
-          curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash
+          echo "📦 Installing ReSukiSU (pinned commit, matches v2.2.0-r2 pairing)..."
+          curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash -s -- b159a8d610fe6c231de7782eed4f06c07e164a74
 
           if [ ! -L "drivers/kernelsu" ] && [ ! -d "drivers/kernelsu" ]; then
             echo "❌ ERROR: drivers/kernelsu was not created by setup.sh!"
             exit 1
           fi
           echo "✔ drivers/kernelsu present"
+
+          echo "🔎 ReSukiSU version info for this build:"
+          git -C KernelSU log -1 --format="  Commit:  %H%n  Date:    %ad%n  Subject: %s" --date=iso
 
           echo "📐 Adding KSU + SUSFS configs..."
           export CONFIG_FILE="arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
@@ -308,7 +269,7 @@ jobs:
           print(f"✔ ReSukiSU + SUSFS configs added to {config_file}")
           PYEOF
 
-          echo "🎉 ReSukiSU + latest SUSFS integrated!"
+          echo "🎉 ReSukiSU + SUSFS (pinned v2.2.0-r2 pairing) integrated!"
 
       - name: "⚙️ Setup basic configs"
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
