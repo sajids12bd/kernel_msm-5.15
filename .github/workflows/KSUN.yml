@@ -212,19 +212,19 @@ jobs:
         if [ "$STATUS" = "success" ]; then
           TEXT="✅ ULTRA Kernel Build SUCCESS
 
-📦 KernelSU Next + SUSFS 2.2
-⚡ LTO + CCache enabled
-📅 $(date)
-
-🔗 $URL"
-        else
-          TEXT="❌ ULTRA Kernel Build FAILED
-
-📅 $(date)
-
-🔗 $URL"
-        fi
-
-        curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
-          -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
-          -d text="$TEXT"
+        📦 KernelSU Next + SUSFS 2.2
+        ⚡ LTO + CCache enabled
+        📅 $(date)
+        
+        🔗 $URL"
+                else
+                  TEXT="❌ ULTRA Kernel Build FAILED
+        
+        📅 $(date)
+        
+        🔗 $URL"
+                fi
+        
+                curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+                  -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+                  -d text="$TEXT"
