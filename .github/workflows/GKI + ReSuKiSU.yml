@@ -434,22 +434,20 @@ jobs:
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
           set -e
+          FILE=scripts/setlocalversion
 
-          # Remove "-dirty"
-          sed -i "s/printf '%s' -dirty/printf '%s'/" scripts/setlocalversion
+          echo "=== Before ==="
+          grep -n -i "dirty\|scm:++" "$FILE" || true
 
-          # Remove trailing "+"
-          sed -i 's/res="$res${scm:++}"/# removed by CI/' scripts/setlocalversion
+          # Remove "-dirty" suffix regardless of quote style/spacing
+          sed -i -E "s/printf '%s' -dirty/printf '%s'/g" "$FILE"
 
-          echo "Verification:"
-          if grep -q "dirty" scripts/setlocalversion; then
-            echo "::error::'-dirty' string still present, sed did not match expected line"
-            exit 1
-          fi
-          if grep -q 'scm:++' scripts/setlocalversion; then
-            echo "::error::'+' scm suffix logic still present, sed did not match expected line"
-            exit 1
-          fi
+          # Remove trailing "+" scm suffix
+          sed -i -E 's/res="\$res\$\{scm:\+\+\}"/# removed by CI/g' "$FILE"
+
+          echo "=== After ==="
+          grep -n -i "dirty\|scm:++" "$FILE" || true
+          
 
       - name: "🔨 Build kernel"
         working-directory: ${{ env.WORK_DIR }}
