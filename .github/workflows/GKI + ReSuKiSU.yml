@@ -33,7 +33,7 @@ jobs:
               - "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-scripts-sign-builds.patch"
               - "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-scripts-do-not-ship-full-auto_localversion.patch"
 
-              
+
     env:
       KERNEL_LOC_DIR: ${{ matrix.kernel.dir }}
       KERNEL_NAME: ${{ matrix.kernel.repo_name }}
@@ -158,6 +158,35 @@ jobs:
             [ -n "$p" ] && apply_patch "$p"
           done
 
+      - name: "🔓 Disable KMI symbol trimming & enforcement"
+        working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
+        run: |
+          set -e
+          echo "🔎 Locating build.config.gki* files..."
+          FILES=$(find . -maxdepth 1 -name "build.config.gki*")
+          if [ -z "$FILES" ]; then
+            echo "::error::No build.config.gki* files found — check working directory"
+            exit 1
+          fi
+
+          for f in $FILES; do
+            echo "--- Patching $f ---"
+
+            # Flip existing assignments (any value) to 0
+            sed -i -E 's/^(TRIM_NONLISTED_KMI)=.*/\1=0/' "$f"
+            sed -i -E 's/^(KMI_SYMBOL_LIST_STRICT_MODE)=.*/\1=0/' "$f"
+            sed -i -E 's/^(KMI_ENFORCED)=.*/\1=0/' "$f"
+
+            grep -nE "^(TRIM_NONLISTED_KMI|KMI_SYMBOL_LIST_STRICT_MODE|KMI_ENFORCED)=" "$f" || echo "  (none of the three vars present in $f)"
+          done
+
+          echo ""
+          echo "🔎 Final state across all build.config.gki* files:"
+          grep -nE "^(TRIM_NONLISTED_KMI|KMI_SYMBOL_LIST_STRICT_MODE|KMI_ENFORCED)=" $FILES || {
+            echo "::error::None of TRIM_NONLISTED_KMI / KMI_SYMBOL_LIST_STRICT_MODE / KMI_ENFORCED were found anywhere — verify variable names for this branch/AOSP tag before proceeding"
+            exit 1
+          }
+
       - name: "🔧 Add BBG Support"
         if: matrix.kernel.enable_ksu == true
         working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
@@ -235,12 +264,6 @@ jobs:
               echo "ℹ susfs_def.h include already present, skipping"
             fi
 
-            # FIX: guard on CL_COPY_MNT_NS (the macro this block actually defines),
-            # not on susfs_is_current_ksu_domain — that identifier already appears
-            # elsewhere in the file from other successfully-applied hunks (as *calls*,
-            # not the extern/define block), so the old guard caused a false "already
-            # present" match and the extern/define block — including CL_COPY_MNT_NS —
-            # was silently never inserted.
             if ! grep -q "^#define CL_COPY_MNT_NS" fs/namespace.c; then
               sed -i '/#include "internal.h"/a\
           \
@@ -395,8 +418,6 @@ jobs:
           CONFIG_FILE="arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
           grep -q "CONFIG_KSU=y" "$CONFIG_FILE" && check "CONFIG_KSU=y present" "ok" || check "CONFIG_KSU=y present" "fail"
           grep -q "CONFIG_KSU_SUSFS=y" "$CONFIG_FILE" && check "CONFIG_KSU_SUSFS=y present" "ok" || check "CONFIG_KSU_SUSFS=y present" "fail"
-          # Note: CONFIG_KPM / CONFIG_KSU_WITH_KPROBES were SukiSU-Ultra-specific
-          # and are not part of the ReSukiSU integration, so they're no longer checked here.
           grep -q "CONFIG_DEBUG_INFO_BTF=n" "$CONFIG_FILE" && check "CONFIG_DEBUG_INFO_BTF=n present" "ok" || check "CONFIG_DEBUG_INFO_BTF=n present" "fail"
           grep -q "CONFIG_OVERLAY_FS=y" "$CONFIG_FILE" && check "CONFIG_OVERLAY_FS=y present" "ok" || check "CONFIG_OVERLAY_FS=y present" "fail"
 
@@ -413,8 +434,22 @@ jobs:
             check "Custom Makefile flag present" "ok" || \
             check "Custom Makefile flag present" "fail"
 
+          # Check KMI trimming/enforcement disabled
+          grep -q "^TRIM_NONLISTED_KMI=0" build.config.gki* 2>/dev/null && \
+            check "TRIM_NONLISTED_KMI=0 present" "ok" || \
+            check "TRIM_NONLISTED_KMI=0 present" "fail"
+          grep -q "^KMI_SYMBOL_LIST_STRICT_MODE=0" build.config.gki* 2>/dev/null && \
+            check "KMI_SYMBOL_LIST_STRICT_MODE=0 present" "ok" || \
+            check "KMI_SYMBOL_LIST_STRICT_MODE=0 present" "fail"
+          grep -q "^KMI_ENFORCED=0" build.config.gki* 2>/dev/null && \
+            check "KMI_ENFORCED=0 present" "ok" || \
+            check "KMI_ENFORCED=0 present" "fail"
+
           echo "=== KSU related configs in defconfig ==="
           grep "KSU\|KPROBES" "$CONFIG_FILE" | head -20
+
+          echo "=== KMI related settings in build.config.gki* ==="
+          grep -H "TRIM_NONLISTED_KMI\|KMI_SYMBOL_LIST_STRICT_MODE\|KMI_ENFORCED" build.config.gki* 2>/dev/null || echo "none found"
 
           echo "========================================="
           echo "  PASSED: $PASS  |  FAILED: $FAIL"
@@ -437,7 +472,7 @@ jobs:
           free -h
           echo "=== Swap ==="
           swapon --show
-          
+
 
       - name: "🔨 Build kernel"
         working-directory: ${{ env.WORK_DIR }}
@@ -532,7 +567,7 @@ jobs:
           ╚═════════════════════════════════════════════════════╝
           Installing YASK Kernel...
           EOF
-          
+
 
           # Create ZIP
           ZIP_NAME="Anykernel3_ReSukiSU-GKI_$(date +'%Y-%m-%d').zip"
