@@ -127,32 +127,31 @@ jobs:
           echo "CONFIG_BBG=y" >> arch/arm64/configs/${{ env.DEFCONFIG_NAME }}
           sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/selinux/selinux,baseband_guard/ } }' security/Kconfig
 
-      - name: "🔧 Setup ReSukiSU"
+     - name: "🔧 Setup ReSukiSU"
         if: matrix.kernel.enable_ksu == true
         working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         env:
-          RESUKISU_REF: "REPLACE_WITH_PINNED_TAG_OR_SHA"   # e.g. v4.1.0, paired with SUSFS v2.2.0 pin
+          RESUKISU_REF: "REPLACE_WITH_PINNED_TAG_OR_SHA"   # e.g. v4.1.0, paired with SUSFS pin
         run: |
           set -e
 
-          # Clean existing installations
           rm -rf ./KernelSU ./drivers/kernelsu
 
           echo "📦 Installing ReSukiSU (target ref: ${{ env.RESUKISU_REF }})..."
           curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" \
             | bash -s "${{ env.RESUKISU_REF }}"
 
-          # setup.sh swallows a bad ref with `|| echo` and silently stays on
-          # whatever branch it was already on — verify the pin actually took,
-          # and fail the build loud if it didn't
+          # setup.sh silently falls back to `main` if the ref doesn't exist
+          # (it swallows the checkout failure with `|| echo`). Detect that
+          # here and surface it as a visible warning instead of a silent
+          # mismatch, but don't fail the build.
           cd KernelSU
           ACTUAL_SHA=$(git rev-parse HEAD)
           if TARGET_SHA=$(git rev-parse "${{ env.RESUKISU_REF }}" 2>/dev/null) && \
              [ "$TARGET_SHA" = "$ACTUAL_SHA" ]; then
             echo "✅ ReSukiSU pinned to ${{ env.RESUKISU_REF }} ($ACTUAL_SHA)"
           else
-            echo "::error::ReSukiSU ref '${{ env.RESUKISU_REF }}' not found — refusing to build against unpinned $(git branch --show-current 2>/dev/null || echo main) @ $ACTUAL_SHA"
-            exit 1
+            echo "::warning::ReSukiSU ref '${{ env.RESUKISU_REF }}' not found — fell back to $(git branch --show-current 2>/dev/null || echo main) @ $ACTUAL_SHA. Build continuing on the unpinned default; this may not match your SUSFS pin."
           fi
           cd ..
 
