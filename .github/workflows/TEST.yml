@@ -280,6 +280,26 @@ jobs:
          # echo 'KBUILD_CFLAGS += -Wno-uninitialized-const-pointer' >> Makefile
          echo 'KBUILD_CFLAGS += -Wno-implicit-function-declaration' >> Makefile
          echo "Custom Makefile line added successfully"
+
+
+      - name: "🔍 Diagnose missing SUSFS/KSU symbols"
+        working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
+        run: |
+          echo "===== Searching susfs4ksu source for definitions ====="
+          grep -rn "DEFAULT_KSU_MNT_ID\|DEFAULT_KSU_MNT_GROUP_ID\|VFSMOUNT_MNT_FLAGS_KSU_UNSHARED_MNT\|CL_COPY_MNT_NS\|susfs_is_sdcard_android_data_not_decrypted" ../susfs4ksu/kernel_patches/ 2>/dev/null || echo "(none found in susfs4ksu kernel_patches)"
+
+          echo "===== Searching ReSukiSU/KernelSU source for definitions ====="
+          grep -rn "DEFAULT_KSU_MNT_ID\|DEFAULT_KSU_MNT_GROUP_ID\|VFSMOUNT_MNT_FLAGS_KSU_UNSHARED_MNT\|CL_COPY_MNT_NS" ./KernelSU/ 2>/dev/null || echo "(none found in KernelSU/)"
+
+          echo "===== Searching currently-patched kernel tree for definitions ====="
+          grep -rln "DEFAULT_KSU_MNT_ID\|DEFAULT_KSU_MNT_GROUP_ID\|VFSMOUNT_MNT_FLAGS_KSU_UNSHARED_MNT\|CL_COPY_MNT_NS" fs/ include/ 2>/dev/null || echo "(none found in fs/ or include/)"
+
+          echo "===== Checking include/linux/susfs.h for the sdcard symbol ====="
+          grep -n "susfs_is_sdcard_android_data_not_decrypted" include/linux/susfs.h 2>/dev/null || echo "❌ not declared in include/linux/susfs.h"
+
+          echo "===== Checking fs/mount.h (common home for these constants) ====="
+          grep -n "DEFAULT_KSU_MNT_ID\|CL_COPY_MNT_NS" fs/mount.h 2>/dev/null || echo "❌ not found in fs/mount.h"
+         
     
       - name: "🔨 Build kernel"
         working-directory: ${{ env.WORK_DIR }}
