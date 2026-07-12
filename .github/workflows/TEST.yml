@@ -249,6 +249,17 @@ jobs:
           EOF
 
           echo "🎉 SUSFS integrated"
+
+
+      - name: "🔍 Inspect fs/namespace.c.rej"
+        if: matrix.kernel.enable_ksu == true
+        working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
+        run: |
+          echo "===== fs/namespace.c.rej content ====="
+          cat fs/namespace.c.rej 2>/dev/null || echo "(no .rej file found)"
+
+          echo "===== Current #include block in fs/namespace.c ====="
+          grep -n "^#include" fs/namespace.c | head -30
           
 
       - name: "⚙️ Setup basic configs"
