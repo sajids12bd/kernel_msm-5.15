@@ -1,4 +1,4 @@
-name: "Build TEST"
+name: "Build YASK"
 
 env:
   OUT_DIR: "out"
@@ -7,7 +7,6 @@ env:
 
 on:
   schedule:
-    #- cron: '0 0 * * 0'
   workflow_dispatch:
         
 jobs:
@@ -18,21 +17,22 @@ jobs:
       fail-fast: false
       matrix:
         kernel:
-          - name: "CLO"
-            dir: "common_clo"
-            repo_name: "clo"
-            repo_url: "https://git.codelinaro.org/clo/la/kernel/msm-5.15.git"
-            branch: "kernel.lnx.5.15.r1-rel"
+          - name: "GKI"
+            dir: "common_gki"
+            repo_name: "common"
+            repo_url: "https://android.googlesource.com/kernel/common"
+            branch: "android13-5.15-lts"
             defconfig: "gki_defconfig"
-            local_version: "-YASK-CLO"
-            output_name: "Image.clo.ksu"
+            local_version: "-YASK-GKI"
+            output_name: "Image.gki.ksu"
             enable_ksu: true
             extra_patches:
               - "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-gki-fixup.patch"
               - "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-scripts-sign-builds.patch"
               - "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-scripts-Don-t-append-and-dirty-to-localversion.patch"
               - "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-scripts-do-not-ship-full-auto_localversion.patch"
-        
+          
+
     env:
       KERNEL_LOC_DIR: ${{ matrix.kernel.dir }}
       KERNEL_NAME: ${{ matrix.kernel.repo_name }}
@@ -49,7 +49,7 @@ jobs:
           mkdir -p ${{ env.KERNEL_LOC_DIR }}
           echo "BUILD_TIME=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
           sudo apt-get update -qq
-          sudo apt-get install -y repo rsync aria2 pahole dwarves
+          sudo apt-get install -y repo rsync aria2
 
       - name: 📐 Setup SWAP 10GB
         uses: pierotofy/set-swap-space@master
@@ -64,23 +64,8 @@ jobs:
       - name: "🌟 Clone kernel source"
         working-directory: ./${{ env.KERNEL_LOC_DIR }}
         run: |
-          git config --global http.postBuffer 524288000
-          git config --global core.compression 0
-          git config --global http.version HTTP/1.1
-      
-          for i in {1..5}; do
-            git clone \
-              --depth=1 \
-              --filter=blob:none \
-              --single-branch \
-              --branch ${{ env.KERNEL_BRANCH }} \
-              ${{ env.KERNEL_REPO }} \
-              ${{ env.KERNEL_NAME }} && break
-      
-            echo "Retry $i/5"
-            rm -rf ${{ env.KERNEL_NAME }}
-            sleep 30
-          done
+          git clone --recursive --branch ${{ env.KERNEL_BRANCH }} \
+            ${{ env.KERNEL_REPO }} ${{ env.KERNEL_NAME }} --depth=1
 
       - name: "📥 Initialize AOSP repo and toolchains"
         working-directory: ${{ env.WORK_DIR }}
@@ -138,242 +123,100 @@ jobs:
         if: matrix.kernel.enable_ksu == true
         working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
-          echo "Adding BBG..."
+          echo "Adding BBG...";
           wget -O- https://github.com/vc-teahouse/Baseband-guard/raw/main/setup.sh | bash
           echo "CONFIG_BBG=y" >> arch/arm64/configs/${{ env.DEFCONFIG_NAME }}
           sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/selinux/selinux,baseband_guard/ } }' security/Kconfig
 
-      - name: "🔧 Setup SukiSU-Ultra with SUSFS"
+      - name: "🔧 Setup ReSukiSU"
         if: matrix.kernel.enable_ksu == true
         working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
+        env:
+          RESUKISU_REF: "REPLACE_WITH_PINNED_TAG_OR_SHA"   # e.g. v4.1.0, paired with SUSFS v2.2.0 pin
         run: |
           set -e
 
           # Clean existing installations
-          rm -rf ./KernelSU ./drivers/kernelsu ./SukiSU-Ultra
+          rm -rf ./KernelSU ./drivers/kernelsu
 
-          echo "📦 Installing SukiSU-Ultra..."
-          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s main
-          
-          # setup.sh clones as 'KernelSU' — rename it
-          if [ -d "KernelSU" ] && [ ! -d "SukiSU-Ultra" ]; then
-            mv KernelSU SukiSU-Ultra
-            echo "✔ Renamed KernelSU → SukiSU-Ultra"
-          fi
+          echo "📦 Installing ReSukiSU (target ref: ${{ env.RESUKISU_REF }})..."
+          curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" \
+            | bash -s "${{ env.RESUKISU_REF }}"
 
-          [ -d "SukiSU-Ultra" ] || { echo "❌ SukiSU-Ultra not found!"; exit 1; }
-          echo "✔ SukiSU-Ultra ready"
-
-          # Verify SukiSU-Ultra kernel entry point
-          INIT_C="SukiSU-Ultra/kernel/core/init.c"
-          [ -f "$INIT_C" ] || {
-            echo "❌ ERROR: $INIT_C not found! Listing SukiSU-Ultra/kernel/:"
-            ls -la SukiSU-Ultra/kernel/ || true
-            exit 1
-          }
-          echo "✔ Found entry point: $INIT_C"
-
-          # Fix drivers/kernelsu symlink — always force recreate with absolute path
-          KERNEL_SRC_ABS="$(realpath SukiSU-Ultra/kernel)"
-          rm -rf drivers/kernelsu
-          ln -sf "$KERNEL_SRC_ABS" drivers/kernelsu
-          echo "✔ Symlink: drivers/kernelsu → $(readlink -f drivers/kernelsu)"
-
-          # Verify Makefile is reachable through symlink
-          if [ ! -f "drivers/kernelsu/Makefile" ]; then
-            echo "❌ ERROR: drivers/kernelsu/Makefile not found!"
-            echo "Absolute path used: $KERNEL_SRC_ABS"
-            ls -la "$KERNEL_SRC_ABS"
-            exit 1
-          fi
-          echo "✔ drivers/kernelsu/Makefile verified"
-
-          # Fix Kconfig recursive dependency
-          echo "🔧 Fixing Kconfig recursive dependency..."
-          KCONFIG_FILE="SukiSU-Ultra/kernel/Kconfig"
-          if [ ! -f "$KCONFIG_FILE" ]; then
-            echo "⚠️ Kconfig not at SukiSU-Ultra/kernel/Kconfig, searching..."
-            KCONFIG_FILE="$(find SukiSU-Ultra -name 'Kconfig' | head -1)"
-          fi
-
-          if [ -f "$KCONFIG_FILE" ]; then
-            echo "✔ Found Kconfig at: $KCONFIG_FILE"
-            sed -i 's/depends on KSU_MANUAL_HOOK/depends on KSU/g' "$KCONFIG_FILE"
-            echo "✔ Kconfig recursive dependency fixed"
-            echo "🔍 Verifying fix:"
-            grep -n "KSU_SUSFS\|KSU_MANUAL_HOOK" "$KCONFIG_FILE" | head -20 || true
+          # setup.sh swallows a bad ref with `|| echo` and silently stays on
+          # whatever branch it was already on — verify the pin actually took,
+          # and fail the build loud if it didn't
+          cd KernelSU
+          ACTUAL_SHA=$(git rev-parse HEAD)
+          if TARGET_SHA=$(git rev-parse "${{ env.RESUKISU_REF }}" 2>/dev/null) && \
+             [ "$TARGET_SHA" = "$ACTUAL_SHA" ]; then
+            echo "✅ ReSukiSU pinned to ${{ env.RESUKISU_REF }} ($ACTUAL_SHA)"
           else
-            echo "❌ Kconfig not found anywhere in SukiSU-Ultra!"
-            find SukiSU-Ultra -name "Kconfig" | head -10
+            echo "::error::ReSukiSU ref '${{ env.RESUKISU_REF }}' not found — refusing to build against unpinned $(git branch --show-current 2>/dev/null || echo main) @ $ACTUAL_SHA"
             exit 1
           fi
+          cd ..
 
-          echo "📦 Cloning SUSFS4KSU..."
-          git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android13-5.15
-          [ -d "susfs4ksu" ] || { echo "❌ SUSFS clone failed!"; exit 1; }
-
-          # Apply SUSFS kernel patch
-          SUSFS_PATCH="susfs4ksu/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch"
-          if [ -f "$SUSFS_PATCH" ]; then
-            echo "🔧 Applying SUSFS kernel patch..."
-            patch -p1 --forward < "$SUSFS_PATCH" && echo "✅ SUSFS patch applied" || echo "⚠️ Patch had issues, continuing..."
-          else
-            echo "⚠️ SUSFS patch not found: $SUSFS_PATCH"
-          fi
-
-          # Add all required SukiSU-Ultra hooks
-          echo "🔧 Adding all required SukiSU-Ultra hooks..."
-          python3 << 'PYEOF'
-          import os
-          
-          # fs/stat.c hooks
-          with open('fs/stat.c', 'r') as f:
-              content = f.read()
-          
-          if 'ksu_handle_newfstat_ret' not in content:
-              content = content.replace(
-                  'SYSCALL_DEFINE2(newfstat, unsigned int, fd, struct stat __user *, statbuf)',
-                  'extern void ksu_handle_newfstat_ret(unsigned int *fd, struct stat __user **statbuf_ptr);\nSYSCALL_DEFINE2(newfstat, unsigned int, fd, struct stat __user *, statbuf)'
-              )
-              content = content.replace(
-                  'SYSCALL_DEFINE2(newfstat, unsigned int, fd, struct stat __user *, statbuf)\n{\n\treturn cp_new_stat',
-                  'SYSCALL_DEFINE2(newfstat, unsigned int, fd, struct stat __user *, statbuf)\n{\n\tksu_handle_newfstat_ret(&fd, &statbuf);\n\treturn cp_new_stat'
-              )
-              print("✔ Added ksu_handle_newfstat_ret to fs/stat.c")
-          else:
-              print("✔ ksu_handle_newfstat_ret already present")
-          
-          if 'ksu_handle_fstat64_ret' not in content:
-              content = content.replace(
-                  'SYSCALL_DEFINE2(fstat64, unsigned long, fd, struct stat64 __user *, statbuf)',
-                  'extern void ksu_handle_fstat64_ret(unsigned long *fd, struct stat64 __user **statbuf_ptr);\nSYSCALL_DEFINE2(fstat64, unsigned long, fd, struct stat64 __user *, statbuf)'
-              )
-              print("✔ Added ksu_handle_fstat64_ret to fs/stat.c")
-          else:
-              print("✔ ksu_handle_fstat64_ret already present")
-          
-          with open('fs/stat.c', 'w') as f:
-              f.write(content)
-          
-          # kernel/sys.c or kernel/reboot.c hooks
-          with open('kernel/sys.c', 'r') as f:
-              content = f.read()
-          
-          if 'ksu_handle_setresuid' not in content:
-              content = content.replace(
-                  'SYSCALL_DEFINE3(setresuid,',
-                  'extern int ksu_handle_setresuid(uid_t *ruid, uid_t *euid, uid_t *suid);\nSYSCALL_DEFINE3(setresuid,'
-              )
-              content = content.replace(
-                  'SYSCALL_DEFINE3(setresuid, uid_t, ruid, uid_t, euid, uid_t, suid)\n{',
-                  'SYSCALL_DEFINE3(setresuid, uid_t, ruid, uid_t, euid, uid_t, suid)\n{\n\tksu_handle_setresuid(&ruid, &euid, &suid);'
-              )
-              print("✔ Added ksu_handle_setresuid to kernel/sys.c")
-          else:
-              print("✔ ksu_handle_setresuid already present")
-          
-          with open('kernel/sys.c', 'w') as f:
-              f.write(content)
-          
-          # ksu_handle_sys_reboot
-          target = 'kernel/reboot.c' if os.path.exists('kernel/reboot.c') else 'kernel/sys.c'
-          with open(target, 'r') as f:
-              content = f.read()
-          
-          if 'ksu_handle_sys_reboot' not in content:
-              content = content.replace(
-                  'SYSCALL_DEFINE4(reboot,',
-                  'extern int ksu_handle_sys_reboot(int *magic1, int *magic2, unsigned int *cmd, void __user **arg);\nSYSCALL_DEFINE4(reboot,'
-              )
-              content = content.replace(
-                  'SYSCALL_DEFINE4(reboot, int, magic1, int, magic2, unsigned int, cmd, void __user *, arg)\n{',
-                  'SYSCALL_DEFINE4(reboot, int, magic1, int, magic2, unsigned int, cmd, void __user *, arg)\n{\n\tksu_handle_sys_reboot(&magic1, &magic2, &cmd, &arg);'
-              )
-              print(f"✔ Added ksu_handle_sys_reboot to {target}")
-          else:
-              print("✔ ksu_handle_sys_reboot already present")
-          
-          with open(target, 'w') as f:
-              f.write(content)
-          
-          # drivers/input/input.c hook
-          with open('drivers/input/input.c', 'r') as f:
-              content = f.read()
-          
-          if 'ksu_handle_input_handle_event' not in content:
-              content = content.replace(
-                  'static void input_handle_event(struct input_dev *dev,',
-                  'extern bool ksu_handle_input_handle_event(unsigned int *type, unsigned int *code, int *value);\nstatic void input_handle_event(struct input_dev *dev,'
-              )
-              content = content.replace(
-                  'static void input_handle_event(struct input_dev *dev,\n\t\t\t     unsigned int type, unsigned int code, int value)\n{',
-                  'static void input_handle_event(struct input_dev *dev,\n\t\t\t     unsigned int type, unsigned int code, int value)\n{\n\tif (ksu_handle_input_handle_event(&type, &code, &value)) return;'
-              )
-              print("✔ Added ksu_handle_input_handle_event to drivers/input/input.c")
-          else:
-              print("✔ ksu_handle_input_handle_event already present")
-          
-          with open('drivers/input/input.c', 'w') as f:
-              f.write(content)
-          PYEOF
-          echo "🔍 Verifying all hooks were added..."
-          grep -l "ksu_handle_setresuid" kernel/sys.c && echo "✔ setresuid hook present" || echo "❌ setresuid hook MISSING"
-          grep -l "ksu_handle_sys_reboot" kernel/reboot.c kernel/sys.c 2>/dev/null && echo "✔ reboot hook present" || echo "❌ reboot hook MISSING"
-          grep -l "ksu_handle_input_handle_event" drivers/input/input.c && echo "✔ input hook present" || echo "❌ input hook MISSING"
-          grep -l "ksu_handle_newfstat_ret" fs/stat.c && echo "✔ newfstat hook present" || echo "❌ newfstat hook MISSING"
-          grep -l "ksu_handle_fstat64_ret" fs/stat.c && echo "✔ fstat64 hook present" || echo "❌ fstat64 hook MISSING"
-
-
-
-          # Copy SUSFS source files
-          echo "📄 Installing SUSFS source files..."
-          mkdir -p fs include/linux
-
-          cp -f susfs4ksu/kernel_patches/fs/susfs.c fs/susfs.c \
-            && echo "✔ Copied fs/susfs.c" \
-            || { echo "❌ fs/susfs.c missing!"; exit 1; }
-
-          cp -f susfs4ksu/kernel_patches/include/linux/susfs.h include/linux/susfs.h \
-            && echo "✔ Copied include/linux/susfs.h" \
-            || { echo "❌ susfs.h missing!"; exit 1; }
-
-          [ -f "susfs4ksu/kernel_patches/include/linux/susfs_def.h" ] && \
-            cp -f susfs4ksu/kernel_patches/include/linux/susfs_def.h include/linux/susfs_def.h && \
-            echo "✔ Copied susfs_def.h" || echo "⚠️ susfs_def.h not found, skipping"
-
-            # Fix ksu_late_loaded undeclared identifier
-            echo "🔧 Fixing ksu_late_loaded declaration..."
-            INIT_C="SukiSU-Ultra/kernel/core/init.c"
-            if grep -q "ksu_late_loaded" "$INIT_C"; then
-              if ! grep -q "bool ksu_late_loaded" "$INIT_C"; then
-                # Insert declaration at the top of the file after includes
-                sed -i '/^#include/!b; /^#include/{h;d}; /^[[:space:]]*$/{G;s/\n\(.*\)/\1\nbool ksu_late_loaded = false;/;b}' "$INIT_C" || true
-                # Simpler fallback: just prepend to the file
-                if ! grep -q "bool ksu_late_loaded" "$INIT_C"; then
-                  echo 'bool ksu_late_loaded = false;' > /tmp/ksu_fix.c
-                  cat "$INIT_C" >> /tmp/ksu_fix.c
-                  mv /tmp/ksu_fix.c "$INIT_C"
-                fi
-                echo "✔ Fixed ksu_late_loaded declaration in init.c"
-              else
-                echo "✔ ksu_late_loaded already declared"
-              fi
-            fi
-          
-          # Copy SUSFS KSU integration files
-           
-
-          # Apply KSU SUSFS patch
-          
-
-          # Add KSU and SUSFS configs — NO leading spaces (critical!)
           CONFIG_FILE="arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
           cat >> "$CONFIG_FILE" << 'EOF'
           CONFIG_KSU=y
-          CONFIG_KPROBES=y
-          CONFIG_HAVE_KPROBES=y
-          CONFIG_KPROBE_EVENTS=y
-          CONFIG_OVERLAY_FS=y
+          EOF
+
+          echo "🎉 ReSukiSU integrated!"
+
+
+      - name: "🔧 Setup SUSFS"
+        if: matrix.kernel.enable_ksu == true
+        working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
+        env:
+          SUSFS_REPO: "https://gitlab.com/simonpunk/susfs4ksu"
+          SUSFS_BRANCH: "gki-android13-5.15"
+          SUSFS_COMMIT: "REPLACE_WITH_PINNED_SHA"   # matched to ReSukiSU pin above
+        run: |
+          set -e
+
+          echo "📦 Fetching SUSFS branch ${{ env.SUSFS_BRANCH }}..."
+          git clone --branch "${{ env.SUSFS_BRANCH }}" "${{ env.SUSFS_REPO }}" ../susfs4ksu
+          cd ../susfs4ksu
+
+          # Verify the pinned commit actually exists AND belongs to this
+          # branch — a hash can exist in the repo but sit on a different
+          # branch (e.g. gki-android14-6.1), which would silently patch
+          # against the wrong GKI target.
+          if ! git cat-file -e "${{ env.SUSFS_COMMIT }}" 2>/dev/null; then
+            echo "::error::SUSFS commit '${{ env.SUSFS_COMMIT }}' does not exist in this repo — aborting"
+            exit 1
+          fi
+
+          if ! git branch -r --contains "${{ env.SUSFS_COMMIT }}" | grep -q "origin/${{ env.SUSFS_BRANCH }}"; then
+            echo "::error::SUSFS commit '${{ env.SUSFS_COMMIT }}' exists but is not reachable from branch '${{ env.SUSFS_BRANCH }}' — likely pinned to the wrong GKI target, aborting"
+            exit 1
+          fi
+
+          git checkout "${{ env.SUSFS_COMMIT }}"
+          echo "✅ SUSFS pinned to ${{ env.SUSFS_COMMIT }} on ${{ env.SUSFS_BRANCH }}"
+          cd -
+
+          # 1. Enable SUSFS hooks inside the ReSukiSU driver
+          cp ../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./KernelSU/
+          (cd KernelSU && patch -p1 < 10_enable_susfs_for_ksu.patch) || echo "::warning::KSU-side SUSFS hunks failed"
+
+          # 2. Copy SUSFS core sources into the kernel tree
+          cp -r ../susfs4ksu/kernel_patches/fs/* fs/
+          cp -r ../susfs4ksu/kernel_patches/include/linux/* include/linux/
+
+          # 3. Apply the GKI-branch-specific patch
+          cp ../susfs4ksu/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch .
+          patch -p1 < 50_add_susfs_in_gki-android13-5.15.patch || echo "::warning::SUSFS core hunks failed — check GKI/SUSFS version match"
+          rm -f 50_add_susfs_in_gki-android13-5.15.patch
+
+          # 4. Remove the KMI protected-exports list so ReSukiSU/SUSFS symbols
+          #    survive KMI trimming instead of being stripped at link time
+          rm -f android/abi_gki_protected_exports_aarch64
+          rm -f android/abi_gki_protected_exports_x86_64
+
+          CONFIG_FILE="arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
+          cat >> "$CONFIG_FILE" << 'EOF'
           CONFIG_KSU_SUSFS=y
           CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
           CONFIG_KSU_SUSFS_SUS_PATH=y
@@ -385,24 +228,19 @@ jobs:
           CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y
           CONFIG_KSU_SUSFS_SPOOF_UNAME=y
           CONFIG_KSU_SUSFS_ENABLE_LOG=y
-          CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
           CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
           CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
-          CONFIG_KSU_SUSFS_SUS_SU=y
           EOF
-          sed -i 's/^[[:space:]]*//' "$CONFIG_FILE"
-          echo "✔ KSU + SUSFS configs added"
 
-          # Cleanup
-          rm -rf susfs4ksu
-          echo "🎉 SukiSU-Ultra with SUSFS fully integrated!"
+          echo "🎉 SUSFS integrated"
+          
 
       - name: "⚙️ Setup basic configs"
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
           CONFIG_FILE="./arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
           
-          # addon configs — NO leading spaces (critical!)
+          # addon configs
           cat >> "$CONFIG_FILE" << 'EOF'
           CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y
           CONFIG_TCP_CONG_ADVANCED=y
@@ -415,48 +253,17 @@ jobs:
           CONFIG_TMPFS_XATTR=y
           CONFIG_TMPFS_POSIX_ACL=y
           CONFIG_KALLSYMS=y
-          CONFIG_KSU_MANUAL_HOOK=y
-          CONFIG_KSU_MANUAL_HOOK_AUTO_SETUID_HOOK=y
-          CONFIG_KSU_MANUAL_HOOK_AUTO_INITRC_HOOK=y
-          CONFIG_KSU_MANUAL_HOOK_AUTO_INPUT_HOOK=y
           EOF
-          sed -i 's/^[[:space:]]*//' "$CONFIG_FILE"
+          
           echo "✅ Basic configs added"
 
       - name: "📝 Append custom Makefile line"
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
-          echo 'KBUILD_CFLAGS += -Wno-implicit-function-declaration' >> Makefile
-          echo "Custom Makefile line added successfully"
-
-      - name: "Debug SukiSU-Ultra hooks"
-        working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
-        run: |
-          echo "===== MANUAL HOOK SETTINGS ====="
-          grep -R "KSU_MANUAL_HOOK" SukiSU-Ultra 2>/dev/null || true
-      
-          echo "===== MISSING HOOK ====="
-          grep -R "ksu_handle_newfstat_ret" SukiSU-Ultra . -n || true
-      
-          echo "===== STAT FUNCTIONS ====="
-          grep -R "newfstat" fs include kernel -n || true
-      
-          echo "===== EXISTING KSU HOOKS ====="
-          grep -R "ksu_handle_stat" . -n || true
-          grep -R "ksu_handle_execveat" . -n || true
-
-      - name: "🔍 Debug required hooks"
-        if: matrix.kernel.enable_ksu == true
-        working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
-        run: |
-          echo "=== All required hooks by SukiSU-Ultra ==="
-          grep -r "You lost" SukiSU-Ultra/kernel/tools/ || true
-          echo ""
-          echo "=== All hooks being checked ==="
-          grep -r "check_ksu_hook" SukiSU-Ultra/kernel/tools/manual_hook_check.mk || true
-          echo ""
-          echo "=== Hooks present in kernel source ==="
-          grep -r "ksu_handle_" fs/ --include="*.c" -l || true
+         # echo 'KBUILD_CFLAGS += -Wno-default-const-init-unsafe' >> Makefile
+         # echo 'KBUILD_CFLAGS += -Wno-uninitialized-const-pointer' >> Makefile
+         echo 'KBUILD_CFLAGS += -Wno-implicit-function-declaration' >> Makefile
+         echo "Custom Makefile line added successfully"
     
       - name: "🔨 Build kernel"
         working-directory: ${{ env.WORK_DIR }}
@@ -492,17 +299,58 @@ jobs:
           set -e
 
           # Clone AnyKernel3
-          git clone --depth=1 https://github.com/sajids12bd/AnyKernel3 -b master AnyKernel3
+          git clone --depth=1 https://github.com/topnotchfreaks/AnyKernel3 -b YASK AnyKernel3
 
           # Copy kernel images
           find ./artifacts -name "Image.*" -exec cp {} AnyKernel3/ \;
 
+          # Create banner
+          cat > AnyKernel3/banner << 'EOF'
+          ╔═════════════════════════════════════════════════════╗
+          ║                                                     ║
+          ║          ██╗   ██╗ █████╗ ███████╗██╗  ██╗          ║
+          ║          ╚██╗ ██╔╝██╔══██╗██╔════╝██║ ██╔╝          ║
+          ║           ╚████╔╝ ███████║███████╗█████╔╝           ║
+          ║            ╚██╔╝  ██╔══██║╚════██║██╔═██╗           ║
+          ║             ██║   ██║  ██║███████║██║  ██╗          ║
+          ║             ╚═╝   ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝          ║
+          ║                                                     ║
+          ║               Yet Another Stock Kernel              ║
+          ║                   by @belowzeroiq                   ║
+          ║                                                     ║
+          ║              Powered by Github Actions              ║
+          ║                                                     ║
+          ╠═════════════════════════════════════════════════════╣
+          ║                                                     ║
+          ║     Features:                                       ║
+          ║     • Full LTO + -O2 Optimization                   ║
+          ║     • Extra TCP Congestion (BBR, Westwood)          ║
+          ║     • AOSP clang-r547379                            ║
+          ║     • Non-KSU & ReSukiSU support                    ║
+          ║     • Baseband-Guard Support                        ║
+          ║     • Metamodule Support                            ║
+          ║                                                     ║
+          ║     Info:                                           ║
+          ║     • Supported Android: 13-17                      ║
+          ║     • Supported Device:                             ║
+          ║       Redmi Note 12 4G/NFC                          ║
+          ║       Redmi Note 13 4G/NFC                          ║
+          ║       Redmi Pad SE                                  ║
+          ║                                                     ║
+          ║     Please ensure:                                  ║
+          ║     • Your device is compatible                     ║
+          ║     • You have a backup of your current kernel      ║
+          ║                                                     ║
+          ╚═════════════════════════════════════════════════════╝
+          Installing YASK Kernel...
+          EOF
+
           # Create ZIP
-          ZIP_NAME="Anykernel3_YASK-SukiSU-Ultra-CLO_$(date +'%Y-%m-%d').zip"
+          ZIP_NAME="Anykernel3_YASK-ReSukiSU-AIO-FULL_$(date +'%Y-%m-%d').zip"
           cd AnyKernel3
           zip -r9 "../$ZIP_NAME" * -x .git/*
           cd ..
-
+          
           echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
           echo "✅ Package created: $ZIP_NAME"
 
@@ -526,7 +374,7 @@ jobs:
           • Kernel: \`Linux 5.15\`
           • Android: \`13-16\`
           • Base: \`GKI & CLO\`
-          • KSU: \`SukiSU-Ultra\`
+          • KSU: \`ReSukiSU\`
           • SUSFS: \`Enabled (GKI A13-5.15)\`
           • LTO: \`Full\`
           • Optimization: \`-O2\`
@@ -536,15 +384,6 @@ jobs:
           • Redmi Note 12 4G/NFC
           • Redmi Note 13 4G/NFC
           • Redmi Pad SE
-
-          📱 *Supported Manager:*
-          • KSU by tiann
-          • KSU by sidex15
-          • Wild-KSU
-          • KernelSU-Next
-          • Rissu-KSU
-          • KowSU
-          • SukiSU-Ultra
 
           🕐 *Build Date:* $(date '+%Y-%m-%d %H:%M:%S UTC')
           📦 *Package:* \`${{ env.ZIP_NAME }}\`
@@ -561,21 +400,21 @@ jobs:
 
           else
             FAILURE_MSG="❌ *YASK Kernel Build Failed*
-
+            
           📦 *Build Information:*
           • Kernel: \`Linux 5.15\`
           • Android: \`13-16\`
           • Base: \`GKI & CLO\`
-          • KSU: \`SukiSU-Ultra\`
+          • KSU: \`ReSukiSU\`
           • SUSFS: \`Enabled (GKI A13-5.15)\`
           • LTO: \`Full\`
           • Optimization: \`-O2\`
           • BBG: \`Enabled\`
-
+          
           🕐 *Failed at:* $(date '+%Y-%m-%d %H:%M:%S UTC')
 
           🔍 Check the [workflow logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details."
-
+           
             curl -s -X POST \
               -d chat_id=${{ secrets.TELEGRAM_CHANNEL_ID }} \
               -d photo="${BANNER_URL}" \
