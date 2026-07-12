@@ -131,7 +131,7 @@ jobs:
         if: matrix.kernel.enable_ksu == true
         working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         env:
-          RESUKISU_REF: "REPLACE_WITH_PINNED_TAG_OR_SHA"   # e.g. v4.1.0, paired with SUSFS pin
+          RESUKISU_REF: "9a335d11d9ec8a99f1c37d8f13dd0ebaf85227aa"   # e.g. v4.1.0, paired with SUSFS pin
         run: |
           set -e
 
@@ -169,7 +169,7 @@ jobs:
         env:
           SUSFS_REPO: "https://gitlab.com/simonpunk/susfs4ksu"
           SUSFS_BRANCH: "gki-android13-5.15"
-          SUSFS_COMMIT: "REPLACE_WITH_PINNED_SHA"   # matched to ReSukiSU pin above
+          SUSFS_COMMIT: "7d032feca40b053f99d7bc4ebf93c91903ac5769A"   # matched to ReSukiSU pin above
         run: |
           set -e
 
