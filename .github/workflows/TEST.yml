@@ -169,7 +169,7 @@ jobs:
         env:
           SUSFS_REPO: "https://gitlab.com/simonpunk/susfs4ksu"
           SUSFS_BRANCH: "gki-android13-5.15"
-          SUSFS_COMMIT: "7d032feca40b053f99d7bc4ebf93c91903ac5769A"
+          SUSFS_COMMIT: "7d032feca40b053f99d7bc4ebf93c91903ac5769"
         run: |
           set -e
 
@@ -192,7 +192,39 @@ jobs:
           # 1. Copy SUSFS core sources into the kernel tree
           cp -r ../susfs4ksu/kernel_patches/fs/* fs/
           cp -r ../susfs4ksu/kernel_patches/include/linux/* include/linux/
-          
+
+          # 2. Apply the GKI-branch-specific patch, EXCLUDING drivers/kernelsu/Kconfig —
+          # ReSukiSU already natively defines KSU_SUSFS/KSU_MANUAL_HOOK as choice
+          # members; this patch's Kconfig hunk duplicates them into a second,
+          # conflicting choice group. All the C-source hook insertions
+          # (kernel/sys.c, fs/exec.c, etc.) still need to apply normally.
+          cp ../susfs4ksu/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch .
+          if ! git apply --reject --exclude='drivers/kernelsu/Kconfig' \
+               50_add_susfs_in_gki-android13-5.15.patch; then
+            echo "::warning::SUSFS core hunks failed — dumping rejected hunks below"
+            echo "===== REJECTED HUNKS START ====="
+            find . -name '*.rej' -exec echo "--- {} ---" \; -exec cat {} \;
+            echo "===== REJECTED HUNKS END ====="
+          fi
+          rm -f 50_add_susfs_in_gki-android13-5.15.patch
+
+          echo "===== HOOK PRESENCE CHECK ====="
+          for pair in "ksu_handle_setresuid:kernel/sys.c" \
+                      "ksu_handle_execveat:fs/exec.c" \
+                      "ksu_handle_faccessat:fs/open.c" \
+                      "ksu_handle_sys_read:fs/read_write.c" \
+                      "ksu_handle_stat:fs/stat.c" \
+                      "ksu_handle_sys_reboot:kernel/reboot.c" \
+                      "ksu_handle_input_handle_event:drivers/input/input.c"; do
+            hook="${pair%%:*}"
+            file="${pair##*:}"
+            if grep -q "$hook" "$file" 2>/dev/null; then
+              echo "✅ $hook found in $file"
+            else
+              echo "❌ $hook MISSING from $file"
+            fi
+          done
+          echo "===== END ====="
 
           # 3. Remove KMI protected-exports list so ReSukiSU/SUSFS symbols
           #    survive KMI trimming
