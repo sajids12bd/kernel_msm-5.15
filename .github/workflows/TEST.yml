@@ -6,7 +6,6 @@ env:
   ANDROID_VERSION: "13"
 
 on:
-  schedule:
   workflow_dispatch:
         
 jobs:
