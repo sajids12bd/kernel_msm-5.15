@@ -169,7 +169,7 @@ jobs:
         env:
           SUSFS_REPO: "https://gitlab.com/simonpunk/susfs4ksu"
           SUSFS_BRANCH: "gki-android13-5.15"
-          SUSFS_COMMIT: "7d032feca40b053f99d7bc4ebf93c91903ac5769A"   # matched to ReSukiSU pin above
+          SUSFS_COMMIT: "7d032feca40b053f99d7bc4ebf93c91903ac5769A"
         run: |
           set -e
 
@@ -177,39 +177,34 @@ jobs:
           git clone --branch "${{ env.SUSFS_BRANCH }}" "${{ env.SUSFS_REPO }}" ../susfs4ksu
           cd ../susfs4ksu
 
-          # Verify the pinned commit actually exists AND belongs to this
-          # branch — a hash can exist in the repo but sit on a different
-          # branch (e.g. gki-android14-6.1), which would silently patch
-          # against the wrong GKI target.
           if ! git cat-file -e "${{ env.SUSFS_COMMIT }}" 2>/dev/null; then
-            echo "::error::SUSFS commit '${{ env.SUSFS_COMMIT }}' does not exist in this repo — aborting"
+            echo "::error::SUSFS commit '${{ env.SUSFS_COMMIT }}' does not exist — aborting"
             exit 1
           fi
-
           if ! git branch -r --contains "${{ env.SUSFS_COMMIT }}" | grep -q "origin/${{ env.SUSFS_BRANCH }}"; then
-            echo "::error::SUSFS commit '${{ env.SUSFS_COMMIT }}' exists but is not reachable from branch '${{ env.SUSFS_BRANCH }}' — likely pinned to the wrong GKI target, aborting"
+            echo "::error::SUSFS commit '${{ env.SUSFS_COMMIT }}' not reachable from '${{ env.SUSFS_BRANCH }}' — aborting"
             exit 1
           fi
-
           git checkout "${{ env.SUSFS_COMMIT }}"
           echo "✅ SUSFS pinned to ${{ env.SUSFS_COMMIT }} on ${{ env.SUSFS_BRANCH }}"
           cd -
 
-          # 1. Enable SUSFS hooks inside the ReSukiSU driver
-          cp ../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./KernelSU/
-          (cd KernelSU && patch -p1 < 10_enable_susfs_for_ksu.patch) || echo "::warning::KSU-side SUSFS hunks failed"
-
-          # 2. Copy SUSFS core sources into the kernel tree
+          # 1. Copy SUSFS core sources into the kernel tree
           cp -r ../susfs4ksu/kernel_patches/fs/* fs/
           cp -r ../susfs4ksu/kernel_patches/include/linux/* include/linux/
 
-          # 3. Apply the GKI-branch-specific patch
+          # 2. Apply the GKI-branch-specific patch — with rejected-hunk diagnostics
           cp ../susfs4ksu/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch .
-          patch -p1 < 50_add_susfs_in_gki-android13-5.15.patch || echo "::warning::SUSFS core hunks failed — check GKI/SUSFS version match"
+          if ! patch -p1 --no-backup-if-mismatch < 50_add_susfs_in_gki-android13-5.15.patch; then
+            echo "::warning::SUSFS core hunks failed — dumping rejected hunks below"
+            echo "===== REJECTED HUNKS START ====="
+            find . -name '*.rej' -exec echo "--- {} ---" \; -exec cat {} \;
+            echo "===== REJECTED HUNKS END ====="
+          fi
           rm -f 50_add_susfs_in_gki-android13-5.15.patch
 
-          # 4. Remove the KMI protected-exports list so ReSukiSU/SUSFS symbols
-          #    survive KMI trimming instead of being stripped at link time
+          # 3. Remove KMI protected-exports list so ReSukiSU/SUSFS symbols
+          #    survive KMI trimming
           rm -f android/abi_gki_protected_exports_aarch64
           rm -f android/abi_gki_protected_exports_x86_64
 
