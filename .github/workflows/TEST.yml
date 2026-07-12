@@ -257,7 +257,7 @@ jobs:
         run: |
           set -e
 
-          if grep -q "susfs_is_sdcard_android_data_not_decrypted" fs/namespace.c; then
+          if grep -q "susfs_def.h" fs/namespace.c; then
             echo "✅ SUSFS include block already present in fs/namespace.c — skipping"
           else
             echo "🩹 Manually inserting rejected SUSFS include block into fs/namespace.c"
@@ -279,7 +279,7 @@ jobs:
             sed -i '/^#include <linux\/mnt_idmapping.h>$/r /tmp/susfs_include_block.txt' fs/namespace.c
             rm -f /tmp/susfs_include_block.txt
 
-            if grep -q "susfs_is_sdcard_android_data_not_decrypted" fs/namespace.c; then
+            if grep -q "susfs_def.h" fs/namespace.c; then
               echo "✅ Include block successfully inserted"
             else
               echo "::error::Insertion failed — anchor line 'mnt_idmapping.h' not found in fs/namespace.c"
@@ -288,6 +288,9 @@ jobs:
           fi
 
           rm -f fs/namespace.c.rej
+
+          echo "===== Verification: #include block now in fs/namespace.c ====="
+          sed -n '32,45p' fs/namespace.c
           
 
       - name: "⚙️ Setup basic configs"
