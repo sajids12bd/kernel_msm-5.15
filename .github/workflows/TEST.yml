@@ -291,6 +291,27 @@ jobs:
 
           echo "===== Verification: #include block now in fs/namespace.c ====="
           sed -n '32,45p' fs/namespace.c
+
+
+
+      - name: "🔍 Find guard config for SUSFS_IS_INODE symbols"
+        if: matrix.kernel.enable_ksu == true
+        working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
+        run: |
+          echo "===== Searching for symbol declarations/definitions ====="
+          grep -rn "SUSFS_IS_INODE_OPEN_REDIRECT\|SUSFS_IS_INODE_SUS_MAP" \
+            ../susfs4ksu/kernel_patches/ include/ fs/ 2>/dev/null
+
+          echo "===== Context around each match (5 lines before) ====="
+          grep -rn -B5 "SUSFS_IS_INODE_OPEN_REDIRECT\|SUSFS_IS_INODE_SUS_MAP" \
+            ../susfs4ksu/kernel_patches/fs/susfs.c \
+            ../susfs4ksu/kernel_patches/include/linux/*.h 2>/dev/null
+
+          echo "===== All CONFIG_KSU_SUSFS_* options mentioned in susfs.c ====="
+          grep -o "CONFIG_KSU_SUSFS_[A-Z_]*" ../susfs4ksu/kernel_patches/fs/susfs.c | sort -u
+
+          echo "===== Current defconfig SUSFS settings ====="
+          grep "CONFIG_KSU_SUSFS" arch/arm64/configs/${{ env.DEFCONFIG_NAME }}
           
 
       - name: "⚙️ Setup basic configs"
