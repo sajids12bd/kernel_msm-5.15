@@ -251,15 +251,43 @@ jobs:
           echo "🎉 SUSFS integrated"
 
 
-      - name: "🔍 Inspect fs/namespace.c.rej"
+      - name: "🩹 Fix rejected fs/namespace.c include hunk"
         if: matrix.kernel.enable_ksu == true
         working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
-          echo "===== fs/namespace.c.rej content ====="
-          cat fs/namespace.c.rej 2>/dev/null || echo "(no .rej file found)"
+          set -e
 
-          echo "===== Current #include block in fs/namespace.c ====="
-          grep -n "^#include" fs/namespace.c | head -30
+          if grep -q "susfs_is_sdcard_android_data_not_decrypted" fs/namespace.c; then
+            echo "✅ SUSFS include block already present in fs/namespace.c — skipping"
+          else
+            echo "🩹 Manually inserting rejected SUSFS include block into fs/namespace.c"
+
+            cat > /tmp/susfs_include_block.txt << 'EOF'
+            #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
+            #include <linux/susfs_def.h>
+            #endif // #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
+            
+            #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
+            extern bool susfs_is_current_ksu_domain(void);
+            extern struct static_key_true susfs_is_sdcard_android_data_not_decrypted;
+            
+            #define CL_COPY_MNT_NS BIT(25) /* used by copy_mnt_ns() */
+            
+            #endif // #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
+            EOF
+
+            sed -i '/^#include <linux\/mnt_idmapping.h>$/r /tmp/susfs_include_block.txt' fs/namespace.c
+            rm -f /tmp/susfs_include_block.txt
+
+            if grep -q "susfs_is_sdcard_android_data_not_decrypted" fs/namespace.c; then
+              echo "✅ Include block successfully inserted"
+            else
+              echo "::error::Insertion failed — anchor line 'mnt_idmapping.h' not found in fs/namespace.c"
+              exit 1
+            fi
+          fi
+
+          rm -f fs/namespace.c.rej
           
 
       - name: "⚙️ Setup basic configs"
