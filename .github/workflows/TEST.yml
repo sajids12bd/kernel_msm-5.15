@@ -252,24 +252,6 @@ jobs:
           echo "🎉 SUSFS integrated"
 
 
-      - name: "🔍 Audit all SUSFS include hunks across the tree"
-        if: matrix.kernel.enable_ksu == true
-        working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
-        run: |
-          echo "===== Any remaining .rej files anywhere in the tree ====="
-          find . -name '*.rej' -exec echo "--- {} ---" \; -exec cat {} \;
-
-          echo "===== Checking susfs_def.h include presence in files that use its macros ====="
-          for f in fs/namei.c fs/proc/base.c fs/proc/fd.c fs/proc/task_mmu.c fs/statfs.c fs/open.c fs/namespace.c; do
-            if grep -q "SUSFS_IS_INODE" "$f" 2>/dev/null; then
-              if grep -q "susfs_def.h" "$f" 2>/dev/null; then
-                echo "✅ $f: uses SUSFS macros AND includes susfs_def.h"
-              else
-                echo "❌ $f: uses SUSFS macros but MISSING #include <linux/susfs_def.h>"
-              fi
-            fi
-          done
-
 
       - name: "🩹 Fix rejected SUSFS include hunks"
         if: matrix.kernel.enable_ksu == true
@@ -334,26 +316,6 @@ jobs:
           echo "--- fs/proc/task_mmu.c ---"
           sed -n '20,28p' fs/proc/task_mmu.c
 
-
-
-      - name: "🔍 Find guard config for SUSFS_IS_INODE symbols"
-        if: matrix.kernel.enable_ksu == true
-        working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
-        run: |
-          echo "===== Searching for symbol declarations/definitions ====="
-          grep -rn "SUSFS_IS_INODE_OPEN_REDIRECT\|SUSFS_IS_INODE_SUS_MAP" \
-            ../susfs4ksu/kernel_patches/ include/ fs/ 2>/dev/null
-
-          echo "===== Context around each match (5 lines before) ====="
-          grep -rn -B5 "SUSFS_IS_INODE_OPEN_REDIRECT\|SUSFS_IS_INODE_SUS_MAP" \
-            ../susfs4ksu/kernel_patches/fs/susfs.c \
-            ../susfs4ksu/kernel_patches/include/linux/*.h 2>/dev/null
-
-          echo "===== All CONFIG_KSU_SUSFS_* options mentioned in susfs.c ====="
-          grep -o "CONFIG_KSU_SUSFS_[A-Z_]*" ../susfs4ksu/kernel_patches/fs/susfs.c | sort -u
-
-          echo "===== Current defconfig SUSFS settings ====="
-          grep "CONFIG_KSU_SUSFS" arch/arm64/configs/${{ env.DEFCONFIG_NAME }}
           
 
       - name: "⚙️ Setup basic configs"
@@ -387,23 +349,96 @@ jobs:
          echo "Custom Makefile line added successfully"
 
 
-      - name: "🔍 Diagnose missing SUSFS/KSU symbols"
+      - name: "✅ Pre-build verification"
+        if: matrix.kernel.enable_ksu == true
         working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
-          echo "===== Searching susfs4ksu source for definitions ====="
-          grep -rn "DEFAULT_KSU_MNT_ID\|DEFAULT_KSU_MNT_GROUP_ID\|VFSMOUNT_MNT_FLAGS_KSU_UNSHARED_MNT\|CL_COPY_MNT_NS\|susfs_is_sdcard_android_data_not_decrypted" ../susfs4ksu/kernel_patches/ 2>/dev/null || echo "(none found in susfs4ksu kernel_patches)"
+          echo "========================================="
+          echo "       PRE-BUILD VERIFICATION"
+          echo "========================================="
+          PASS=0
+          FAIL=0
 
-          echo "===== Searching ReSukiSU/KernelSU source for definitions ====="
-          grep -rn "DEFAULT_KSU_MNT_ID\|DEFAULT_KSU_MNT_GROUP_ID\|VFSMOUNT_MNT_FLAGS_KSU_UNSHARED_MNT\|CL_COPY_MNT_NS" ./KernelSU/ 2>/dev/null || echo "(none found in KernelSU/)"
+          check() {
+            local desc="$1"
+            local result="$2"
+            if [ "$result" = "ok" ]; then
+              echo "✔ $desc"
+              PASS=$((PASS+1))
+            else
+              echo "❌ $desc"
+              FAIL=$((FAIL+1))
+            fi
+          }
 
-          echo "===== Searching currently-patched kernel tree for definitions ====="
-          grep -rln "DEFAULT_KSU_MNT_ID\|DEFAULT_KSU_MNT_GROUP_ID\|VFSMOUNT_MNT_FLAGS_KSU_UNSHARED_MNT\|CL_COPY_MNT_NS" fs/ include/ 2>/dev/null || echo "(none found in fs/ or include/)"
+          # Check ReSukiSU/KernelSU directory
+          ( [ -d "ReSukiSU" ] || [ -d "KernelSU" ] ) && check "ReSukiSU/KernelSU directory exists" "ok" || check "ReSukiSU/KernelSU directory exists" "fail"
 
-          echo "===== Checking include/linux/susfs.h for the sdcard symbol ====="
-          grep -n "susfs_is_sdcard_android_data_not_decrypted" include/linux/susfs.h 2>/dev/null || echo "❌ not declared in include/linux/susfs.h"
+          # Check symlink
+          [ -f "drivers/kernelsu/Makefile" ] && check "drivers/kernelsu symlink valid" "ok" || check "drivers/kernelsu symlink valid" "fail"
 
-          echo "===== Checking fs/mount.h (common home for these constants) ====="
-          grep -n "DEFAULT_KSU_MNT_ID\|CL_COPY_MNT_NS" fs/mount.h 2>/dev/null || echo "❌ not found in fs/mount.h"
+          # Check SUSFS source files
+          [ -f "fs/susfs.c" ] && check "fs/susfs.c present" "ok" || check "fs/susfs.c present" "fail"
+          [ -f "include/linux/susfs.h" ] && check "include/linux/susfs.h present" "ok" || check "include/linux/susfs.h present" "fail"
+
+          # Check ksu_late_loaded fix
+          grep -q "ksu_late_loaded" drivers/kernelsu/core/init.c && \
+            grep -q "bool ksu_late_loaded" drivers/kernelsu/core/init.c && \
+            check "ksu_late_loaded declared in init.c" "ok" || \
+            check "ksu_late_loaded declared in init.c" "fail"
+
+          # Check app_profile fix
+          grep -q "struct task_struct \*p = current" drivers/kernelsu/policy/app_profile.c && \
+            check "app_profile.c p,t fix applied" "ok" || \
+            check "app_profile.c p,t fix applied" "fail"
+
+          # Check configs in defconfig
+          CONFIG_FILE="arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
+          grep -q "CONFIG_KSU=y" "$CONFIG_FILE" && check "CONFIG_KSU=y present" "ok" || check "CONFIG_KSU=y present" "fail"
+          grep -q "CONFIG_KSU_SUSFS=y" "$CONFIG_FILE" && check "CONFIG_KSU_SUSFS=y present" "ok" || check "CONFIG_KSU_SUSFS=y present" "fail"
+          grep -q "CONFIG_DEBUG_INFO_BTF=n" "$CONFIG_FILE" && check "CONFIG_DEBUG_INFO_BTF=n present" "ok" || check "CONFIG_DEBUG_INFO_BTF=n present" "fail"
+          grep -q "CONFIG_OVERLAY_FS=y" "$CONFIG_FILE" && check "CONFIG_OVERLAY_FS=y present" "ok" || check "CONFIG_OVERLAY_FS=y present" "fail"
+
+          # Check BBG
+          grep -q "CONFIG_BBG=y" "$CONFIG_FILE" && check "CONFIG_BBG=y present" "ok" || check "CONFIG_BBG=y present" "fail"
+
+          # Check no dangerous configs
+          grep -q "CONFIG_KSU_SUSFS_SUS_SU=y" "$CONFIG_FILE" && \
+            check "CONFIG_KSU_SUSFS_SUS_SU=y NOT present (dangerous)" "fail" || \
+            check "CONFIG_KSU_SUSFS_SUS_SU=y not present (safe)" "ok"
+
+          # Check Makefile custom flag
+          grep -q "Wno-implicit-function-declaration" Makefile && \
+            check "Custom Makefile flag present" "ok" || \
+            check "Custom Makefile flag present" "fail"
+
+          # Check KMI trimming/enforcement disabled
+          grep -q "^TRIM_NONLISTED_KMI=0" build.config.gki* 2>/dev/null && \
+            check "TRIM_NONLISTED_KMI=0 present" "ok" || \
+            check "TRIM_NONLISTED_KMI=0 present" "fail"
+          grep -q "^KMI_SYMBOL_LIST_STRICT_MODE=0" build.config.gki* 2>/dev/null && \
+            check "KMI_SYMBOL_LIST_STRICT_MODE=0 present" "ok" || \
+            check "KMI_SYMBOL_LIST_STRICT_MODE=0 present" "fail"
+          grep -q "^KMI_ENFORCED=0" build.config.gki* 2>/dev/null && \
+            check "KMI_ENFORCED=0 present" "ok" || \
+            check "KMI_ENFORCED=0 present" "fail"
+
+          echo "=== KSU related configs in defconfig ==="
+          grep "KSU\|KPROBES" "$CONFIG_FILE" | head -20
+
+          echo "=== KMI related settings in build.config.gki* ==="
+          grep -H "TRIM_NONLISTED_KMI\|KMI_SYMBOL_LIST_STRICT_MODE\|KMI_ENFORCED" build.config.gki* 2>/dev/null || echo "none found"
+
+          echo "========================================="
+          echo "  PASSED: $PASS  |  FAILED: $FAIL"
+          echo "========================================="
+
+          if [ $FAIL -gt 0 ]; then
+            echo "❌ Verification failed — fix issues before building!"
+            exit 1
+          else
+            echo "✅ All checks passed — safe to build!"
+          fi
          
     
       - name: "🔨 Build kernel"
