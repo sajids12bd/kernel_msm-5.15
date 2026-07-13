@@ -313,6 +313,40 @@ jobs:
           sed -n '32,45p' fs/namespace.c
 
 
+      - name: "🩹 Fix rejected fs/proc/task_mmu.c include hunk"
+        if: matrix.kernel.enable_ksu == true
+        working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
+        run: |
+          set -e
+
+          if grep -q "susfs_def.h" fs/proc/task_mmu.c; then
+            echo "✅ SUSFS include block already present in fs/proc/task_mmu.c — skipping"
+          else
+            echo "🩹 Manually inserting rejected SUSFS include block into fs/proc/task_mmu.c"
+
+            printf '%s\n' \
+              '#if defined(CONFIG_KSU_SUSFS_SUS_KSTAT) || defined(CONFIG_KSU_SUSFS_SUS_MAP) || defined(CONFIG_KSU_SUSFS_OPEN_REDIRECT)' \
+              '#include <linux/susfs_def.h>' \
+              '#endif // #if defined(CONFIG_KSU_SUSFS_SUS_KSTAT) || defined(CONFIG_KSU_SUSFS_SUS_MAP) || defined(CONFIG_KSU_SUSFS_OPEN_REDIRECT)' \
+              > /tmp/task_mmu_include_block.txt
+
+            sed -i '/^#include <linux\/pkeys.h>$/r /tmp/task_mmu_include_block.txt' fs/proc/task_mmu.c
+            rm -f /tmp/task_mmu_include_block.txt
+
+            if grep -q "susfs_def.h" fs/proc/task_mmu.c; then
+              echo "✅ Include block successfully inserted"
+            else
+              echo "::error::Insertion failed — anchor line 'pkeys.h' not found in fs/proc/task_mmu.c"
+              exit 1
+            fi
+          fi
+
+          rm -f fs/proc/task_mmu.c.rej
+
+          echo "===== Verification: #include block now in fs/proc/task_mmu.c ====="
+          sed -n '20,28p' fs/proc/task_mmu.c
+
+
 
       - name: "🔍 Find guard config for SUSFS_IS_INODE symbols"
         if: matrix.kernel.enable_ksu == true
