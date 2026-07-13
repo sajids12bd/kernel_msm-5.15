@@ -252,6 +252,25 @@ jobs:
           echo "🎉 SUSFS integrated"
 
 
+      - name: "🔍 Audit all SUSFS include hunks across the tree"
+        if: matrix.kernel.enable_ksu == true
+        working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
+        run: |
+          echo "===== Any remaining .rej files anywhere in the tree ====="
+          find . -name '*.rej' -exec echo "--- {} ---" \; -exec cat {} \;
+
+          echo "===== Checking susfs_def.h include presence in files that use its macros ====="
+          for f in fs/namei.c fs/proc/base.c fs/proc/fd.c fs/proc/task_mmu.c fs/statfs.c fs/open.c fs/namespace.c; do
+            if grep -q "SUSFS_IS_INODE" "$f" 2>/dev/null; then
+              if grep -q "susfs_def.h" "$f" 2>/dev/null; then
+                echo "✅ $f: uses SUSFS macros AND includes susfs_def.h"
+              else
+                echo "❌ $f: uses SUSFS macros but MISSING #include <linux/susfs_def.h>"
+              fi
+            fi
+          done
+
+
       - name: "🩹 Fix rejected fs/namespace.c include hunk"
         if: matrix.kernel.enable_ksu == true
         working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
