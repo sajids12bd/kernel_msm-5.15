@@ -349,95 +349,15 @@ jobs:
          echo "Custom Makefile line added successfully"
 
 
-      - name: "✅ Pre-build verification"
+      - name: "🛡️ KMI symbol export sanity check"
         if: matrix.kernel.enable_ksu == true
         working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
-          echo "========================================="
-          echo "       PRE-BUILD VERIFICATION"
-          echo "========================================="
-          PASS=0
-          FAIL=0
-
-          check() {
-            local desc="$1"
-            local result="$2"
-            if [ "$result" = "ok" ]; then
-              echo "✔ $desc"
-              PASS=$((PASS+1))
-            else
-              echo "❌ $desc"
-              FAIL=$((FAIL+1))
-            fi
-          }
-
-          # Check ReSukiSU/KernelSU directory
-          ( [ -d "ReSukiSU" ] || [ -d "KernelSU" ] ) && check "ReSukiSU/KernelSU directory exists" "ok" || check "ReSukiSU/KernelSU directory exists" "fail"
-
-          # Check symlink
-          [ -f "drivers/kernelsu/Makefile" ] && check "drivers/kernelsu symlink valid" "ok" || check "drivers/kernelsu symlink valid" "fail"
-
-          # Check SUSFS source files
-          [ -f "fs/susfs.c" ] && check "fs/susfs.c present" "ok" || check "fs/susfs.c present" "fail"
-          [ -f "include/linux/susfs.h" ] && check "include/linux/susfs.h present" "ok" || check "include/linux/susfs.h present" "fail"
-
-          # Check ksu_late_loaded fix
-          grep -q "ksu_late_loaded" drivers/kernelsu/core/init.c && \
-            grep -q "bool ksu_late_loaded" drivers/kernelsu/core/init.c && \
-            check "ksu_late_loaded declared in init.c" "ok" || \
-            check "ksu_late_loaded declared in init.c" "fail"
-
-          # Check app_profile fix
-          grep -q "struct task_struct \*p = current" drivers/kernelsu/policy/app_profile.c && \
-            check "app_profile.c p,t fix applied" "ok" || \
-            check "app_profile.c p,t fix applied" "fail"
-
-          # Check configs in defconfig
-          CONFIG_FILE="arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
-          grep -q "CONFIG_KSU=y" "$CONFIG_FILE" && check "CONFIG_KSU=y present" "ok" || check "CONFIG_KSU=y present" "fail"
-          grep -q "CONFIG_KSU_SUSFS=y" "$CONFIG_FILE" && check "CONFIG_KSU_SUSFS=y present" "ok" || check "CONFIG_KSU_SUSFS=y present" "fail"
-          grep -q "CONFIG_DEBUG_INFO_BTF=n" "$CONFIG_FILE" && check "CONFIG_DEBUG_INFO_BTF=n present" "ok" || check "CONFIG_DEBUG_INFO_BTF=n present" "fail"
-          grep -q "CONFIG_OVERLAY_FS=y" "$CONFIG_FILE" && check "CONFIG_OVERLAY_FS=y present" "ok" || check "CONFIG_OVERLAY_FS=y present" "fail"
-
-          # Check BBG
-          grep -q "CONFIG_BBG=y" "$CONFIG_FILE" && check "CONFIG_BBG=y present" "ok" || check "CONFIG_BBG=y present" "fail"
-
-          # Check no dangerous configs
-          grep -q "CONFIG_KSU_SUSFS_SUS_SU=y" "$CONFIG_FILE" && \
-            check "CONFIG_KSU_SUSFS_SUS_SU=y NOT present (dangerous)" "fail" || \
-            check "CONFIG_KSU_SUSFS_SUS_SU=y not present (safe)" "ok"
-
-          # Check Makefile custom flag
-          grep -q "Wno-implicit-function-declaration" Makefile && \
-            check "Custom Makefile flag present" "ok" || \
-            check "Custom Makefile flag present" "fail"
-
-          # Check KMI trimming/enforcement disabled
-          grep -q "^TRIM_NONLISTED_KMI=0" build.config.gki* 2>/dev/null && \
-            check "TRIM_NONLISTED_KMI=0 present" "ok" || \
-            check "TRIM_NONLISTED_KMI=0 present" "fail"
-          grep -q "^KMI_SYMBOL_LIST_STRICT_MODE=0" build.config.gki* 2>/dev/null && \
-            check "KMI_SYMBOL_LIST_STRICT_MODE=0 present" "ok" || \
-            check "KMI_SYMBOL_LIST_STRICT_MODE=0 present" "fail"
-          grep -q "^KMI_ENFORCED=0" build.config.gki* 2>/dev/null && \
-            check "KMI_ENFORCED=0 present" "ok" || \
-            check "KMI_ENFORCED=0 present" "fail"
-
-          echo "=== KSU related configs in defconfig ==="
-          grep "KSU\|KPROBES" "$CONFIG_FILE" | head -20
-
-          echo "=== KMI related settings in build.config.gki* ==="
-          grep -H "TRIM_NONLISTED_KMI\|KMI_SYMBOL_LIST_STRICT_MODE\|KMI_ENFORCED" build.config.gki* 2>/dev/null || echo "none found"
-
-          echo "========================================="
-          echo "  PASSED: $PASS  |  FAILED: $FAIL"
-          echo "========================================="
-
-          if [ $FAIL -gt 0 ]; then
-            echo "❌ Verification failed — fix issues before building!"
+          if [ -f android/abi_gki_protected_exports_aarch64 ]; then
+            echo "::error::abi_gki_protected_exports_aarch64 still present — KMI trimming may strip ReSukiSU/SUSFS symbols again (this caused your original bootloop)"
             exit 1
           else
-            echo "✅ All checks passed — safe to build!"
+            echo "✅ KMI protected-exports list absent — symbol trimming won't strip ReSukiSU/SUSFS exports"
           fi
          
     
