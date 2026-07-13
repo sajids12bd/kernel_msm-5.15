@@ -271,79 +271,67 @@ jobs:
           done
 
 
-      - name: "🩹 Fix rejected fs/namespace.c include hunk"
+      - name: "🩹 Fix rejected SUSFS include hunks"
         if: matrix.kernel.enable_ksu == true
         working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
           set -e
 
-          if grep -q "susfs_def.h" fs/namespace.c; then
-            echo "✅ SUSFS include block already present in fs/namespace.c — skipping"
-          else
-            echo "🩹 Manually inserting rejected SUSFS include block into fs/namespace.c"
+          # Reusable fixer: $1 = target file, $2 = anchor line to insert after,
+          # $3 = path to a file containing the block to insert
+          fix_include() {
+            local target="$1"
+            local anchor="$2"
+            local block_file="$3"
 
-            printf '%s\n' \
-              '#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT' \
-              '#include <linux/susfs_def.h>' \
-              '#endif // #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT' \
-              '' \
-              '#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT' \
-              'extern bool susfs_is_current_ksu_domain(void);' \
-              'extern struct static_key_true susfs_is_sdcard_android_data_not_decrypted;' \
-              '' \
-              '#define CL_COPY_MNT_NS BIT(25) /* used by copy_mnt_ns() */' \
-              '' \
-              '#endif // #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT' \
-              > /tmp/susfs_include_block.txt
+            if grep -q "susfs_def.h" "$target"; then
+              echo "✅ $target: SUSFS include block already present — skipping"
+              return
+            fi
 
-            sed -i '/^#include <linux\/mnt_idmapping.h>$/r /tmp/susfs_include_block.txt' fs/namespace.c
-            rm -f /tmp/susfs_include_block.txt
+            echo "🩹 $target: inserting rejected SUSFS include block"
+            sed -i "/^${anchor}\$/r ${block_file}" "$target"
 
-            if grep -q "susfs_def.h" fs/namespace.c; then
-              echo "✅ Include block successfully inserted"
+            if grep -q "susfs_def.h" "$target"; then
+              echo "✅ $target: include block successfully inserted"
             else
-              echo "::error::Insertion failed — anchor line 'mnt_idmapping.h' not found in fs/namespace.c"
+              echo "::error::$target: insertion failed — anchor '${anchor}' not found"
               exit 1
             fi
-          fi
 
-          rm -f fs/namespace.c.rej
+            rm -f "${target}.rej"
+          }
 
-          echo "===== Verification: #include block now in fs/namespace.c ====="
+          # --- fs/namespace.c ---
+          printf '%s\n' \
+            '#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT' \
+            '#include <linux/susfs_def.h>' \
+            '#endif // #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT' \
+            '' \
+            '#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT' \
+            'extern bool susfs_is_current_ksu_domain(void);' \
+            'extern struct static_key_true susfs_is_sdcard_android_data_not_decrypted;' \
+            '' \
+            '#define CL_COPY_MNT_NS BIT(25) /* used by copy_mnt_ns() */' \
+            '' \
+            '#endif // #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT' \
+            > /tmp/block_namespace.txt
+          fix_include "fs/namespace.c" '#include <linux\/mnt_idmapping.h>' /tmp/block_namespace.txt
+          rm -f /tmp/block_namespace.txt
+
+          # --- fs/proc/task_mmu.c ---
+          printf '%s\n' \
+            '#if defined(CONFIG_KSU_SUSFS_SUS_KSTAT) || defined(CONFIG_KSU_SUSFS_SUS_MAP) || defined(CONFIG_KSU_SUSFS_OPEN_REDIRECT)' \
+            '#include <linux/susfs_def.h>' \
+            '#endif // #if defined(CONFIG_KSU_SUSFS_SUS_KSTAT) || defined(CONFIG_KSU_SUSFS_SUS_MAP) || defined(CONFIG_KSU_SUSFS_OPEN_REDIRECT)' \
+            > /tmp/block_task_mmu.txt
+          fix_include "fs/proc/task_mmu.c" '#include <linux\/pkeys.h>' /tmp/block_task_mmu.txt
+          rm -f /tmp/block_task_mmu.txt
+
+          echo "===== Verification ====="
+          echo "--- fs/namespace.c ---"
           sed -n '32,45p' fs/namespace.c
-
-
-      - name: "🩹 Fix rejected fs/proc/task_mmu.c include hunk"
-        if: matrix.kernel.enable_ksu == true
-        working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
-        run: |
-          set -e
-
-          if grep -q "susfs_def.h" fs/proc/task_mmu.c; then
-            echo "✅ SUSFS include block already present in fs/proc/task_mmu.c — skipping"
-          else
-            echo "🩹 Manually inserting rejected SUSFS include block into fs/proc/task_mmu.c"
-
-            printf '%s\n' \
-              '#if defined(CONFIG_KSU_SUSFS_SUS_KSTAT) || defined(CONFIG_KSU_SUSFS_SUS_MAP) || defined(CONFIG_KSU_SUSFS_OPEN_REDIRECT)' \
-              '#include <linux/susfs_def.h>' \
-              '#endif // #if defined(CONFIG_KSU_SUSFS_SUS_KSTAT) || defined(CONFIG_KSU_SUSFS_SUS_MAP) || defined(CONFIG_KSU_SUSFS_OPEN_REDIRECT)' \
-              > /tmp/task_mmu_include_block.txt
-
-            sed -i '/^#include <linux\/pkeys.h>$/r /tmp/task_mmu_include_block.txt' fs/proc/task_mmu.c
-            rm -f /tmp/task_mmu_include_block.txt
-
-            if grep -q "susfs_def.h" fs/proc/task_mmu.c; then
-              echo "✅ Include block successfully inserted"
-            else
-              echo "::error::Insertion failed — anchor line 'pkeys.h' not found in fs/proc/task_mmu.c"
-              exit 1
-            fi
-          fi
-
-          rm -f fs/proc/task_mmu.c.rej
-
-          echo "===== Verification: #include block now in fs/proc/task_mmu.c ====="
+          echo "--- fs/proc/task_mmu.c ---"
           sed -n '20,28p' fs/proc/task_mmu.c
 
 
