@@ -229,7 +229,11 @@ jobs:
             local name="$1"
             local target_dir="${2:-.}"
             echo "🔧 Applying $name (target: $target_dir) ..."
-            curl -LSs -o "$name" "$PATCH_BASE/$name"
+            curl -LSs --retry 5 --retry-delay 3 --retry-all-errors -o "$name" "$PATCH_BASE/$name"
+            if [ ! -s "$name" ]; then
+              echo "::error::$name failed to download (empty file after retries)"
+              exit 1
+            fi
             if patch -p1 -d "$target_dir" < "$name"; then
               echo "✅ $name applied"
             else
