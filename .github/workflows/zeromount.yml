@@ -200,8 +200,11 @@ jobs:
           set -e
           rm -rf ./KernelSU ./drivers/kernelsu
 
-          echo "📦 Installing ReSukiSU..."
-          curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash -s main
+          echo "📦 Installing ReSukiSU (pinned)..."
+          RESUKISU_PIN=$(curl -LSs --retry 5 --retry-delay 3 --retry-all-errors \
+            "https://raw.githubusercontent.com/Enginex0/Super-Builders/main/android13-5.15/resukisu-pin.txt" | tr -d '[:space:]')
+          echo "Pinned ReSukiSU commit: $RESUKISU_PIN"
+          curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash -s "$RESUKISU_PIN"
 
           if [ ! -L "drivers/kernelsu" ]; then
             ln -sf ../KernelSU drivers/kernelsu
