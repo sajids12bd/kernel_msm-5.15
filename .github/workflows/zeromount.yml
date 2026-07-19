@@ -203,8 +203,19 @@ jobs:
           echo "📦 Installing ReSukiSU (pinned)..."
           RESUKISU_PIN=$(curl -LSs --retry 5 --retry-delay 3 --retry-all-errors \
             "https://raw.githubusercontent.com/Enginex0/Super-Builders/main/android13-5.15/resukisu-pin.txt" | tr -d '[:space:]')
-          echo "Pinned ReSukiSU commit: $RESUKISU_PIN"
+          echo "Pinned ReSukiSU commit (target): $RESUKISU_PIN"
           curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash -s "$RESUKISU_PIN"
+
+          echo "🔍 Verifying ReSukiSU checkout..."
+          ACTUAL_COMMIT=$(git -C KernelSU rev-parse HEAD)
+          echo "Actual HEAD in KernelSU/: $ACTUAL_COMMIT"
+          if [ ! -f "KernelSU/kernel/supercalls.c" ]; then
+            echo "::error::KernelSU/kernel/supercalls.c NOT FOUND after checkout — pin did not take effect"
+            echo "Contents of KernelSU/kernel/:"
+            ls -la KernelSU/kernel/ || echo "KernelSU/kernel/ does not exist"
+            exit 1
+          fi
+          echo "✅ KernelSU/kernel/supercalls.c present"
 
           if [ ! -L "drivers/kernelsu" ]; then
             ln -sf ../KernelSU drivers/kernelsu
