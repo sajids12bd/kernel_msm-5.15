@@ -407,17 +407,18 @@ jobs:
           cat > AnyKernel3/banner << 'EOF'
           ╔═════════════════════════════════════════════════════╗
           ║                                                     ║
-          ║          ██╗   ██╗ █████╗ ███████╗██╗  ██╗          ║
-          ║          ╚██╗ ██╔╝██╔══██╗██╔════╝██║ ██╔╝          ║
-          ║           ╚████╔╝ ███████║███████╗█████╔╝           ║
-          ║            ╚██╔╝  ██╔══██║╚════██║██╔═██╗           ║
-          ║             ██║   ██║  ██║███████║██║  ██╗          ║
-          ║             ╚═╝   ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝          ║
+          ║         _         _          ___       _            ║
+          ║        /_\  _   _| |_ ___   / __\ ___ | |_ ___      ║
+          ║       //_\\| | | | __/ _ \ /__\/// _ \| __/ __|     ║
+          ║      /  _  \ |_| | || (_) / \/  \ (_) | |_\__ \     ║
+          ║      \_/ \_/\__,_|\__\___/\_____/\___/ \__|___/     ║
           ║                                                     ║
-          ║               Yet Another Stock Kernel              ║
-          ║                   by @belowzeroiq                   ║
           ║                                                     ║
-          ║              Powered by Github Actions              ║
+          ║                                                     ║
+          ║               Yet Another xStock Kernel             ║
+          ║                yougotme101.belowzeroiq              ║
+          ║                                                     ║
+          ║               Powered by Github Actions             ║
           ║                                                     ║
           ╠═════════════════════════════════════════════════════╣
           ║                                                     ║
@@ -426,12 +427,12 @@ jobs:
           ║     • Extra TCP Congestion (BBR, Westwood)          ║
           ║     • AOSP clang-r547379                            ║
           ║     • ReSuKiSU support                              ║
-          ║     • SUSFS integration (for KSU builds)            ║
-          ║     • Baseband-Guard Support                        ║
-          ║     • Metamodule Support                            ║
+          ║     • SUSFS v2.2 (for KSU builds)                   ║
+          ║     • Baseband-Guard Enable                         ║
+          ║     • Metamodule Enable                             ║
           ║                                                     ║
           ║     Info:                                           ║
-          ║     • Supported Android: 13-16                      ║
+          ║     • Supported Android: 13-17                      ║
           ║     • Supported Device:                             ║
           ║         Redmi Note 12 4G/NFC                        ║
           ║         Redmi Note 13 4G/NFC                        ║
@@ -442,7 +443,7 @@ jobs:
           ║     • You have a backup of your current kernel      ║
           ║                                                     ║
           ╚═════════════════════════════════════════════════════╝
-          Installing YASK Kernel...
+          Installing Kernel...
           EOF
 
 
