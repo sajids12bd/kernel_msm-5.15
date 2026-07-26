@@ -1,4 +1,4 @@
-name: "Build XStock-MULTI"
+name: "Build YASK+"
 
 env:
   OUT_DIR: "out"
@@ -12,7 +12,7 @@ on:
 
 jobs:
   build-kernels:
-    name: "🐎 Build StockX ${{ matrix.kernel.name }} kernel"
+    name: "🐎 Build ${{ matrix.kernel.name }} kernel"
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -378,30 +378,18 @@ jobs:
           BUILD_CONFIG=${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}/build.config.gki.aarch64 \
           build/build.sh -j$(nproc --all)
           
-      - name: "📁 Copy Vanilla kernel image"
-        if: matrix.kernel.enable_ksu == false
-        working-directory: ${{ env.WORK_DIR }}/out/dist
-        run: |
-          cp Image "${{ env.OUTPUT_NAME }}"
-
-      - name: "📁 Copy KSU kernel image"
-        if: matrix.kernel.enable_ksu == true
+      - name: "📁 Copy kernel image"
         working-directory: ${{ env.WORK_DIR }}/out/dist
         run: |
           cp Image "${{ env.OUTPUT_NAME }}"
 
       - name: "📤 Upload kernel artifact"
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v4.6.2
         with:
           name: ${{ matrix.kernel.name }}-kernel
           path: ${{ env.WORK_DIR }}/out/dist/${{ env.OUTPUT_NAME }}
           retention-days: 1
 
-      - name: 🔍 Check Space (Post-Build)
-        if: always() # Run even if build fails to debug space issues
-        run: |
-          echo "Final disk space status:"
-          df -h /
 
   package-kernels:
     name: "📦 Package Kernels"
@@ -409,7 +397,7 @@ jobs:
     needs: [build-kernels]
     steps:
       - name: "📥 Download kernel artifacts"
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v4.3.0
         with:
           path: ./artifacts/
 
@@ -418,96 +406,58 @@ jobs:
           set -e
 
           # Clone AnyKernel3
-          git clone --depth=1 https://github.com/yougotme101/AnyKernel3 -b YASK AnyKernel3
+          git clone --depth=1 https://github.com/sajids12bd/AnyKernel3 -b master AnyKernel3
 
           # Copy kernel images
           find ./artifacts -name "Image.*" -exec cp {} AnyKernel3/ \;
 
-          # Create banner
-          cat > AnyKernel3/banner << 'EOF'
-          ╔═════════════════════════════════════════════════════╗
-          ║'##::::'##::'######::'########::'#######:::'######::'##:::'##:║
-          ║. ##::'##::'##... ##:... ##..::'##.... ##:'##... ##: ##::'##::║
-          ║:. ##'##::: ##:::..::::: ##:::: ##:::: ##: ##:::..:: ##:'##:::║
-          ║::. ###::::. ######::::: ##:::: ##:::: ##: ##::::::: #####::::║
-          ║:: ## ##::::..... ##:::: ##:::: ##:::: ##: ##::::::: ##. ##:::║
-          ║: ##:. ##::'##::: ##:::: ##:::: ##:::: ##: ##::: ##: ##:. ##::║
-          ║##:::. ##:. ######::::: ##::::. #######::. ######:: ##::. ##::║
-          ║..:::::..:::......::::::..::::::.......::::......:::..::::..::║
-          ║                                                     ║
-          ║                     XStock Kernel                   ║
-          ║                   by @yougotme101                   ║
-          ║                                                     ║
-          ║              Powered by Github Actions              ║
-          ║                                                     ║
-          ╠═════════════════════════════════════════════════════╣
-          ║                                                     ║
-          ║     Features:                                       ║
-          ║     • Full LTO + -O2 Optimization                   ║
-          ║     • Extra TCP Congestion                          ║
-          ║     • AOSP clang-r596125                            ║
-          ║     • Droidspaces Support                           ║
-          ║     • Baseband-guard v1 Support                     ║
-          ║     • Vanilla & ReSukiSU (Multi Manager Support).   ║
-          ║     • Integrated with SUSFS (GKI A13-5.15)          ║
-          ║     • Metamodule (Magic-Mount or Mountify) Support  ║
-          ║                                                     ║
-          ║     Please ensure:                                  ║
-          ║     • Your device is compatible                     ║
-          ║     • You have a backup of your current kernel      ║
-          ║                                                     ║
-          ╚═════════════════════════════════════════════════════╝
-          Installing XStock Kernel...
-          EOF
-
           # Create ZIP
-          ZIP_NAME="AK3_XStock-AIO-FULL_MULTI_$(date +'%Y-%m-%d').zip"
+          ZIP_NAME="Anykernel3_YASx-_$(date +'%Y-%m-%d').zip"
           cd AnyKernel3
           zip -r9 "../$ZIP_NAME" * -x .git/*
           cd ..
-          
+
           echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
           echo "✅ Package created: $ZIP_NAME"
 
       - name: "⬆️ Upload to GitHub Release"
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
         with:
           files: ${{ env.ZIP_NAME }}
-          tag_name: "XStock-MULTI"
+          tag_name: "A13_5.15"
 
-      - name: "🎉 Send Telegram success notification"
+      - name: "📱 Send Telegram Notification"
         run: |
-          RELEASE_URL="https://github.com/${{ github.repository }}/releases/tag/XStock-MULTI"
-          BANNER_URL="https://raw.githubusercontent.com/yougotme101/kernel_msm-5.15/builder/assets/xeniel.png"
-          
+          RELEASE_URL="https://github.com/${{ github.repository }}/releases/tag/A13_5.15"
+          BANNER_URL="https://raw.githubusercontent.com/topnotchfreaks/kernel_msm-5.15/builder/assets/yask.png"
+
           if [[ "${{ job.status }}" == "success" ]]; then
-            MESSAGE="✅ *XStock Kernel Released*
+            MESSAGE="✅ *Kernel Released*
 
           📦 *Build Information:*
           • Kernel: \`Linux 5.15\`
           • Android: \`13-17\`
           • Base: \`GKI & CLO\`
-          • KSU: \`ReSukiSU\`
+          • KSU: \`SukiSU-Ultra\`
           • SUSFS: \`Enabled (GKI A13-5.15)\`
           • LTO: \`Full\`
           • Optimization: \`-O2\`
           • BBG: \`Enabled\`
-          • Droidspaces: \`Enabled\`
 
           📱 *Supported Devices:*
           • Redmi Note 12 4G/NFC
           • Redmi Note 13 4G/NFC
           • Redmi Pad SE
-          • Redmi 15/Poco M7 (untested)
 
           📱 *Supported Manager:*
           • KSU by tiann
-          • MKSU
+          • KSU by sidex15
+          • Wild-KSU
+          • KernelSU-Next
           • Rissu-KSU
           • KowSU
-          • ReSukiSU (Main Root Manager)
           • SukiSU-Ultra
 
           🕐 *Build Date:* $(date '+%Y-%m-%d %H:%M:%S UTC')
@@ -516,7 +466,7 @@ jobs:
           ⬇️ [Download Here]($RELEASE_URL)"
 
             curl -s -X POST \
-              -d chat_id=${{ secrets.TELEGRAM_USER_ID }} \
+              -d chat_id=${{ secrets.TELEGRAM_CHANNEL_ID }} \
               -d photo="${BANNER_URL}" \
               --data-urlencode "caption=${MESSAGE}" \
               -d parse_mode="Markdown" \
@@ -524,25 +474,24 @@ jobs:
               "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendPhoto"
 
           else
-            FAILURE_MSG="❌ *XStock Kernel Build Failed*
-            
+            FAILURE_MSG="❌ *Kernel Build Failed*
+
           📦 *Build Information:*
           • Kernel: \`Linux 5.15\`
           • Android: \`13-17\`
           • Base: \`GKI & CLO\`
-          • KSU: \`ReSukiSU\`
+          • KSU: \`SukiSU-Ultra\`
           • SUSFS: \`Enabled (GKI A13-5.15)\`
           • LTO: \`Full\`
           • Optimization: \`-O2\`
           • BBG: \`Enabled\`
-          • Droidspaces: \`Enabled\`
-          
+
           🕐 *Failed at:* $(date '+%Y-%m-%d %H:%M:%S UTC')
 
           🔍 Check the [workflow logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details."
-           
+
             curl -s -X POST \
-              -d chat_id=${{ secrets.TELEGRAM_USER_ID }} \
+              -d chat_id=${{ secrets.TELEGRAM_CHANNEL_ID }} \
               -d photo="${BANNER_URL}" \
               --data-urlencode "caption=${FAILURE_MSG}" \
               -d parse_mode="Markdown" \
