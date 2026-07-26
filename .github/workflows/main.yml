@@ -411,6 +411,49 @@ jobs:
           # Copy kernel images
           find ./artifacts -name "Image.*" -exec cp {} AnyKernel3/ \;
 
+          # Create banner
+          cat > AnyKernel3/banner << 'EOF'
+          ╔═════════════════════════════════════════════════════╗
+          ║                                                     ║
+          ║         _         _          ___       _            ║
+          ║        /_\  _   _| |_ ___   / __\ ___ | |_ ___      ║
+          ║       //_\\| | | | __/ _ \ /__\/// _ \| __/ __|     ║
+          ║      /  _  \ |_| | || (_) / \/  \ (_) | |_\__ \     ║
+          ║      \_/ \_/\__,_|\__\___/\_____/\___/ \__|___/     ║
+          ║                                                     ║
+          ║                                                     ║
+          ║                                                     ║
+          ║              Yet Another xStock Kernel              ║
+          ║               yougotme101.belowzeroiq               ║
+          ║                                                     ║
+          ║              Powered by Github Actions              ║
+          ║                                                     ║
+          ╠═════════════════════════════════════════════════════╣
+          ║                                                     ║
+          ║     Features:                                       ║
+          ║     • Full LTO + -O2 Optimization                   ║
+          ║     • Extra TCP Congestion (BBR, Westwood)          ║
+          ║     • AOSP clang-r547379                            ║
+          ║     • ReSuKiSU support                              ║
+          ║     • SUSFS v2.2 (for KSU builds)                   ║
+          ║     • Baseband-Guard Enable                         ║
+          ║     • Metamodule Enable                             ║
+          ║                                                     ║
+          ║     Info:                                           ║
+          ║     • Supported Android: 13-17                      ║
+          ║     • Supported Device:                             ║
+          ║         Redmi Note 12 4G/NFC                        ║
+          ║         Redmi Note 13 4G/NFC                        ║
+          ║         Redmi Pad SE                                ║
+          ║                                                     ║
+          ║     Please ensure:                                  ║
+          ║     • Your device is compatible                     ║
+          ║     • You have a backup of your current kernel      ║
+          ║                                                     ║
+          ╚═════════════════════════════════════════════════════╝
+          Installing Kernel...
+          EOF
+
           # Create ZIP
           ZIP_NAME="Anykernel3_YASx-_$(date +'%Y-%m-%d').zip"
           cd AnyKernel3
