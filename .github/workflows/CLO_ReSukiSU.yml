@@ -61,15 +61,38 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y repo rsync aria2 pahole dwarves
 
-      - name: 📐 Setup SWAP 10GB
+      - name: 🔍 Check Space (Before Cleanup)
+        run: |
+          echo "Disk space before cleanup:"
+          df -h /
+
+      - name: 🧹 Aggressive Cleanup
+        run: |
+          # Remove heavy pre-installed tools
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf "/usr/local/share/boost"
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          
+          # Prune Docker to remove hidden images and build cache
+          sudo docker image prune --all --force
+          sudo docker builder prune -a -f
+
+      - name: 🔍 Check Space (After Cleanup)
+        run: |
+          echo "Disk space after cleanup:"
+          df -h /
+          
+      - name: 📐 Setup SWAP 14GB
         uses: pierotofy/set-swap-space@master
         with:
-          swap-size-gb: 10
-
+            swap-size-gb: 14
+            
       - name: 📐 Tune Swap
         run: |
-          echo "vm.swappiness=80" | sudo tee -a /etc/sysctl.conf
-          sudo sysctl -p
+            echo "vm.swappiness=80" | sudo tee -a /etc/sysctl.conf
+            sudo sysctl -p
 
       - name: "🌟 Clone kernel source"
         working-directory: ./${{ env.KERNEL_LOC_DIR }}
