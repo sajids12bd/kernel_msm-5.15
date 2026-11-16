@@ -6,7 +6,16 @@ env:
   ANDROID_VERSION: "13"
 
 on:
-    workflow_dispatch:
+  workflow_dispatch:
+    inputs:
+      bakasu_pin:
+        description: "BakaSU: commit SHA or YYYY-MM-DD (empty = latest main)"
+        required: false
+        default: ""
+      susfs_pin:
+        description: "susfs4ksu: commit SHA or YYYY-MM-DD (empty = latest branch head)"
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -70,18 +79,22 @@ jobs:
           git config --global http.version HTTP/1.1
 
           for i in {1..5}; do
-            git clone \
+            if git clone \
               --depth=1 \
               --filter=blob:none \
               --single-branch \
               --branch ${{ env.KERNEL_BRANCH }} \
               ${{ env.KERNEL_REPO }} \
-              ${{ env.KERNEL_NAME }} && break
+              ${{ env.KERNEL_NAME }}; then
+              break
+            fi
 
             echo "Retry $i/5"
             rm -rf ${{ env.KERNEL_NAME }}
             sleep 30
           done
+
+          [ -d "${{ env.KERNEL_NAME }}/.git" ] || { echo "❌ Kernel clone failed after 5 attempts"; exit 1; }
 
       - name: "📥 Initialize AOSP repo and toolchains"
         working-directory: ${{ env.WORK_DIR }}
@@ -89,7 +102,7 @@ jobs:
           # Initialize AOSP repo
           repo init -u https://android.googlesource.com/kernel/manifest -b common-android13-5.15-lts --depth=1
           repo sync --optimized-fetch --prune -j8
-          
+
           # Clean up existing repo and common directories
           rm -rf .repo
           rm -rf common
@@ -107,13 +120,13 @@ jobs:
           rm -rf prebuilts/clang/host/linux-x86/clang-r584948b
           rm -rf prebuilts/clang/host/linux-x86/clang-r596125
           rm -rf prebuilts/clang/host/linux-x86/clang-stable
-          
+
           # Update build config constants
           sed -i \
            -e 's/^BRANCH=.*/BRANCH=android13-5.15/' \
            -e 's/^CLANG_VERSION=.*/CLANG_VERSION=r614150/' \
            ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}/build.config.constants
-          
+
           # Remove defconfig check (if exists)
           sed -i '/^POST_DEFCONFIG_CMDS="check_defconfig"/d' ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}/build.config.gki || true
 
@@ -124,22 +137,27 @@ jobs:
           echo "CONFIG_LOCALVERSION=\"${{ env.LOCAL_VERSION }}-${{ env.BUILD_TIME }}\"" >> "$CONFIG_FILE"
           echo "CONFIG_LOCALVERSION_AUTO=n" >> "$CONFIG_FILE"
 
-          # Helper
+          # Helper: -fsSL so a 404 fails instead of saving an HTML page as a "patch";
+          # --forward skips hunks that are already applied instead of prompting.
           apply_patch() {
             local url="$1"
             local file=$(basename "$url")
-            curl -L -o "$file" "$url"
-            patch -p1 < "$file" || echo "::warning::Hunks failed in $file"
+            curl -fsSL -o "$file" "$url" || { echo "::warning::Could not download $file"; return 0; }
+            patch -p1 --forward --no-backup-if-mismatch < "$file" || echo "::warning::Hunks failed in $file"
             rm -f "$file"
           }
 
-          # Common patches
-          apply_patch "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-gki-fixup.patch"
-
-          # Kernel-specific patches
+          # Kernel-specific patches (gki-fixup is the first entry of this list)
           echo '${{ toJSON(matrix.kernel.extra_patches) }}' | jq -r '.[]' | while read p; do
             [ -n "$p" ] && apply_patch "$p"
           done
+
+          # Patches can leave harmless rejects (overlapping setlocalversion hunks etc).
+          # Report them, then clear them so later SUSFS reject checks only see SUSFS rejects.
+          while IFS= read -r r; do
+            echo "::warning::reject left by patches: $r"
+            rm -f "$r"
+          done < <(find . -name '*.rej' -not -path './.git/*')
 
           # Basic optimizations
           echo "CONFIG_KALLSYMS=y" >> "$CONFIG_FILE"
@@ -170,12 +188,11 @@ jobs:
           sed -i '/ZRAM_DEF_COMP_LZO/d' "$CONFIG_FILE"
           echo "CONFIG_CRYPTO_LZ4=y" >> "$CONFIG_FILE"
           echo "CONFIG_KERNEL_LZ4=y" >> "$CONFIG_FILE"
-          echo "ZRAM_DEF_COMP_LZ4=y" >> "$CONFIG_FILE"
+          echo "CONFIG_ZRAM_DEF_COMP_LZ4=y" >> "$CONFIG_FILE"
 
           # WireGuard VPN support
           echo "CONFIG_WIREGUARD=y" >> "$CONFIG_FILE"
           echo "CONFIG_NET_UDP_TUNNEL=y" >> "$CONFIG_FILE"
-          
 
       - name: '⚙️ Inject Reflex Governor'
         shell: bash
@@ -184,7 +201,7 @@ jobs:
           set -euo pipefail
 
           mkdir -p kernel/sched
-          curl -sL -o kernel/sched/cpufreq_reflex.c \
+          curl -fsSL -o kernel/sched/cpufreq_reflex.c \
             "https://raw.githubusercontent.com/kusonekoworld-max/KonekoKernel-GKI/refs/heads/main/.github/actions/build-kernel/patches/reflex/cpufreq_reflex.c"
 
           if ! grep -q "cpufreq_reflex.o" "kernel/sched/Makefile"; then
@@ -207,7 +224,7 @@ jobs:
               echo "CONFIG_CPU_FREQ_GOV_REFLEX=y" >> "$CONFIG_FILE"
             fi
           fi
-          
+
           echo "🎉 Inject Reflex Governor setup complete!"
 
       - name: 'Inject Vorpal Governor + GKI510 Compat'
@@ -217,11 +234,11 @@ jobs:
           set -euo pipefail
 
           mkdir -p kernel/sched
-          curl -sL -o kernel/sched/cpufreq_vorpal.c \
+          curl -fsSL -o kernel/sched/cpufreq_vorpal.c \
             "https://raw.githubusercontent.com/yougotme101/KonekoKernel-GKI/refs/heads/main/.github/actions/build-kernel/patches/vorpal/cpufreq_vorpal.c"
-          curl -sL -o kernel/sched/rfx_gki510_compat.c \
+          curl -fsSL -o kernel/sched/rfx_gki510_compat.c \
             "https://raw.githubusercontent.com/yougotme101/KonekoKernel-GKI/refs/heads/main/.github/actions/build-kernel/patches/vorpal/rfx_gki510_compat.c"
-            
+
           if ! grep -q "cpufreq_vorpal.o" "kernel/sched/Makefile"; then
             echo 'obj-$(CONFIG_CPU_FREQ_GOV_VORPAL) += cpufreq_vorpal.o' >> "kernel/sched/Makefile"
           fi
@@ -240,7 +257,7 @@ jobs:
             printf "\t  gaming/thermal-aware dual-profile operation.\n" >> "drivers/cpufreq/Kconfig"
           fi
 
-          CONFIG_FILE="arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"          
+          CONFIG_FILE="arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
           if [ -f "$CONFIG_FILE" ] && ! grep -q "CONFIG_CPU_FREQ_GOV_VORPAL" "$CONFIG_FILE"; then
             echo "CONFIG_CPU_FREQ_GOV_VORPAL=y" >> "$CONFIG_FILE"
           fi
@@ -293,7 +310,7 @@ jobs:
           fi
 
           if ! grep -q "ideal_runtime / 2" "$FAIR_C"; then
-            perl -0pi -e 's{(\tdelta_exec = curr->sum_exec_runtime - curr->prev_sum_exec_runtime;\n)(\ttrace_android_rvh_check_preempt_tick)}{$1\n\tif (unlikely(sched_gaming_active) \&\& entity_is_task(curr)) {\n\t\tstruct task_struct *p = task_of(curr);\n\n\t\tif (p->static_prio > DEFAULT_PRIO \&\n\t\t    delta_exec > ideal_runtime / 2)\n\t\t\tresched_curr(rq_of(cfs_rq));\n\t}\n\n$2}' "$FAIR_C"
+            perl -0pi -e 's{(\tdelta_exec = curr->sum_exec_runtime - curr->prev_sum_exec_runtime;\n)(\ttrace_android_rvh_check_preempt_tick)}{$1\n\tif (unlikely(sched_gaming_active) \&\& entity_is_task(curr)) {\n\t\tstruct task_struct *p = task_of(curr);\n\n\t\tif (p->static_prio > DEFAULT_PRIO \&\&\n\t\t    delta_exec > ideal_runtime / 2)\n\t\t\tresched_curr(rq_of(cfs_rq));\n\t}\n\n$2}' "$FAIR_C"
           fi
 
           if ! grep -q "NSEC_PER_MSEC" "$FAIR_C"; then
@@ -327,43 +344,53 @@ jobs:
 
       - name: "🔧 Setup KSU"
         if: matrix.kernel.enable_ksu == true
+        shell: bash
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
+        env:
+          BAKASU_PIN: ${{ inputs.bakasu_pin }}
+          SUSFS_PIN: ${{ inputs.susfs_pin }}
         run: |
+          # resolve_ref <repo dir> <"" | sha | YYYY-MM-DD> <default ref>
+          resolve_ref() {
+            if [ -z "$2" ]; then echo "$3"
+            elif echo "$2" | grep -qE '^[0-9a-f]{7,40}$'; then echo "$2"
+            else git -C "$1" rev-list -1 --before="$2 23:59:59" "$3"; fi
+          }
+
+          # Only SUSFS rejects should be visible from here on
+          find . -name '*.rej' -not -path './.git/*' -delete
+
           rm -rf ./KernelSU ./drivers/kernelsu
 
           echo "📦 Installing KSU..."
           curl -LSs "https://raw.githubusercontent.com/Baka-SU/BakaSU/main/kernel/setup.sh" | bash -s
-          
-          echo "✔ KSU installed successfully"
-          
+
+          if [ -n "$BAKASU_PIN" ]; then
+            BAKASU_REF=$(resolve_ref KernelSU "$BAKASU_PIN" origin/main)
+            [ -n "$BAKASU_REF" ] || { echo "❌ No BakaSU commit matches '$BAKASU_PIN'"; exit 1; }
+            git -C KernelSU checkout -q "$BAKASU_REF"
+          fi
+          BAKASU_SHA=$(git -C KernelSU rev-parse HEAD)
+          echo "✔ KSU installed successfully (BakaSU $BAKASU_SHA)"
+
           # Clone SUSFS4KSU for kernel patches only (not KSU integration)
           echo "📦 Cloning SUSFS4KSU for kernel patches..."
-          git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android13-5.15
+          git clone --filter=blob:none --no-checkout \
+            --branch gki-android13-5.15 https://gitlab.com/simonpunk/susfs4ksu.git susfs4ksu
+          SUSFS_REF=$(resolve_ref susfs4ksu "$SUSFS_PIN" HEAD)
+          [ -n "$SUSFS_REF" ] || { echo "❌ No susfs4ksu commit matches '$SUSFS_PIN'"; exit 1; }
+          git -C susfs4ksu reset -q --hard "$SUSFS_REF"
+          SUSFS_SHA=$(git -C susfs4ksu rev-parse HEAD)
+          SUSFS_DATE=$(git -C susfs4ksu log -1 --format=%cd --date=short)
+          echo "✔ SUSFS $SUSFS_SHA ($SUSFS_DATE)"
 
-          # echo "☣️ Applying namespace.c Fake Patch (if applicable)"
-          # if grep -q '^#include <trace/hooks/blk.h>$' fs/namespace.c; then
-          #  sed -i '/^#include <trace\/hooks\/blk.h>$/d' fs/namespace.c
-          #  NS_FAKE_PATCHED=1
-          # else
-          #  echo "ℹ️ blk.h include not present in fs/namespace.c — skipping fake patch"
-          #  NS_FAKE_PATCHED=0
-          # fi
-
-          # echo "☣️ Applying task_mmu.c Fake Patch (if applicable)"
-          # if grep -q '^#include <trace/hooks/mm.h>$' fs/proc/task_mmu.c; then
-          #  sed -i '/^#include <trace\/hooks\/mm.h>$/d' fs/proc/task_mmu.c
-          #  MM_FAKE_PATCHED=1
-          # else
-          #  echo "ℹ️ mm.h include not present in fs/proc/task_mmu.c — skipping fake patch"
-          #  MM_FAKE_PATCHED=0
-          # fi
+          {
+            echo "### Source pins"
+            echo "- BakaSU: \`$BAKASU_SHA\`"
+            echo "- susfs4ksu (gki-android13-5.15): \`$SUSFS_SHA\` ($SUSFS_DATE)"
+          } >> "$GITHUB_STEP_SUMMARY"
 
           SUSFS_KERNEL_PATCH="$PWD/susfs4ksu/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch"
-          
-          # SUSFS_KERNEL_PATCH="$PWD/50_add_susfs_in_gki-android13-5.15.patch"
-          # curl -fsSL -o "$SUSFS_KERNEL_PATCH" \
-          #  "https://raw.githubusercontent.com/nullptr-t-oss/kernel_kit/main/kernel_patches/salami-oos14/susfs/50_add_susfs_in_gki-android13-5.15.patch" \
-          #  || { echo "❌ Failed to download SUSFS patch"; exit 1; }
 
           echo "🔧 Applying SUSFS kernel patch..."
           if patch -p1 < "$SUSFS_KERNEL_PATCH"; then
@@ -388,9 +415,9 @@ jobs:
               rm -f fs/proc/task_mmu.c.rej fs/proc/task_mmu.c.orig
             fi
 
-            if find . -name '*.rej' ! -name 'mkcompile_h.rej' | grep -q .; then
+            if find . -name '*.rej' ! -name 'mkcompile_h.rej' -not -path './.git/*' | grep -q .; then
               echo "❌ Unexpected rejects remain"
-              find . -name '*.rej' ! -name 'mkcompile_h.rej' | while read -r r; do
+              find . -name '*.rej' ! -name 'mkcompile_h.rej' -not -path './.git/*' | while read -r r; do
                 echo "=== $r ==="; cat "$r"
               done
               exit 1
@@ -405,7 +432,7 @@ jobs:
 
             # declares the helpers static; export them so the kernel side can link
             sed -i -E 's/^static (int|void) (security_context_to_sid_with_policy|security_sid_to_context_with_policy|security_compute_av_user_with_policy)\(/\1 \2(/' "$HIDE"
-            grep -n '^[a-z].*_with_policy(struct' "$HIDE"
+            grep -n '^[a-z].*_with_policy(struct' "$HIDE" || true
             if grep -n '^static .*_with_policy(' "$HIDE"; then
               echo "❌ helpers still static"; exit 1
             fi
@@ -439,21 +466,18 @@ jobs:
             echo "ℹ️ Old selinux_hide model: keeping fake_state as-is"
           fi
 
-          echo "🔧 Applying SUSFS -> KernelSU patch..."
-          KSU_PATCH="susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch"
-          
           echo "📄 Forcing SUSFS source injection..."
-          
+
           # Always replace fs/susfs.c
           mkdir -p fs
           cp -f susfs4ksu/kernel_patches/fs/susfs.c fs/susfs.c
           echo "✔ Copied fs/susfs.c"
-          
+
           # Always replace include/linux/susfs.h
           mkdir -p include/linux
           cp -f susfs4ksu/kernel_patches/include/linux/susfs.h include/linux/susfs.h
           echo "✔ Copied include/linux/susfs.h"
-          
+
           # Also install missing susfs_def.h
           if [ -f susfs4ksu/kernel_patches/include/linux/susfs_def.h ]; then
             cp -f susfs4ksu/kernel_patches/include/linux/susfs_def.h include/linux/susfs_def.h
@@ -461,22 +485,31 @@ jobs:
           else
             echo "⚠️ susfs_def.h not found in repo"
           fi
-          
+
+          # Older kernels (like this CLO 5.15) may not have i_user_ns(); newer susfs.c uses it.
+          if ! grep -q "i_user_ns" include/linux/fs.h && grep -q "i_user_ns" fs/susfs.c; then
+            echo "🔁 Kernel has no i_user_ns(): rewriting susfs.c call sites to &init_user_ns"
+            perl -0pi -e 's/i_user_ns(\((?:[^()]++|(?1))*\))/&init_user_ns/g' fs/susfs.c
+            if grep -q "i_user_ns" fs/susfs.c; then
+              echo "::warning::i_user_ns still referenced in fs/susfs.c"
+            fi
+          fi
+
           echo "🔍 Verifying SUSFS files..."
           for f in fs/susfs.c include/linux/susfs.h include/linux/susfs_def.h; do
             if [ -f "$f" ]; then echo "✔ Found: $f"; else echo "❌ Missing: $f"; fi
           done
-          
+
           # Clean up SUSFS repo (we only needed kernel patches, not KSU integration)
           rm -rf susfs4ksu
-          
-          # Create symbolic link for drivers/kernelsu (if needed by build system)
+
+          # setup.sh already links drivers/kernelsu -> ../KernelSU/kernel; restore if missing
           if [ ! -L "drivers/kernelsu" ]; then
-            ln -sf ../KernelSU drivers/kernelsu
+            ln -sf ../KernelSU/kernel drivers/kernelsu
             echo "✔ Created drivers/kernelsu symlink"
           fi
 
-          echo "✅ SUSFS build wiring verified"
+          echo "✅ SUSFS build wiring done"
 
           CONFIG_FILE="arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
           cat >> "$CONFIG_FILE" << 'EOF'
@@ -491,49 +524,29 @@ jobs:
           CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
           CONFIG_KSU_SUSFS_SUS_MAP=y
           EOF
-      
-          echo "🎉 BaKaSu + SUSFS v2.x.x + inline hooks integrated!"
 
-      - name: "⚙️ Setup basic configs"
-        working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
-        run: |
-          CONFIG_FILE="./arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
-          python3 << 'PYEOF'
-          configs = """
-          CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y
-          CONFIG_TCP_CONG_ADVANCED=y
-          CONFIG_TCP_CONG_BIC=n
-          CONFIG_TCP_CONG_WESTWOOD=y
-          CONFIG_TCP_CONG_HTCP=n
-          CONFIG_TCP_CONG_BBR=y
-          CONFIG_DEFAULT_WESTWOOD=y
-          CONFIG_OVERLAY_FS=y
-          CONFIG_TMPFS_XATTR=y
-          CONFIG_TMPFS_POSIX_ACL=y
-          CONFIG_KALLSYMS=y
-          """
-          import os
-          config_file = os.environ.get('CONFIG_FILE', 'arch/arm64/configs/gki_defconfig')
-          with open(config_file, 'a') as f:
-              f.write(configs.strip() + '\n')
-          print("✅ Basic configs added")
-          PYEOF
+          echo "🎉 BakaSU + SUSFS + inline hooks integrated!"
 
-      - name: "📝 Append custom Makefile line"
-        working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
-        run: |
-          echo 'KBUILD_CFLAGS += -Wno-implicit-function-declaration' >> Makefile
-          echo "Custom Makefile line added successfully"
-
-      - name: "🧩 Add KSU defconfig options"
+      - name: "🔎 Diagnostics: SUSFS / KernelSU symbol skew"
         if: matrix.kernel.enable_ksu == true
         shell: bash
-        working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
+        working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
+        run: |
+          # Informational only. These are the symbols that break when SUSFS and BakaSU drift apart.
+          echo "--- fake_state references:"
+          grep -rn "fake_state" security/selinux drivers/kernelsu 2>/dev/null | head -20 || true
+          echo "--- preinit symbols:"
+          grep -rn "ksu_setup_preinit_file\|ksu_preinit_handle_post_execveat" fs security include drivers/kernelsu 2>/dev/null | head -20 || true
+          echo "--- i_user_ns:"
+          grep -c "i_user_ns" include/linux/fs.h || true
+          grep -n "i_user_ns" fs/susfs.c | head -5 || true
+          exit 0
+
+      - name: "🧩 Normalize defconfig"
+        shell: bash
+        working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
           CONFIG_FILE="arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
-          KSU_KCONFIG="drivers/kernelsu/Kconfig"
-
-          [ -f "$KSU_KCONFIG" ] || { echo "❌ $KSU_KCONFIG not found"; exit 1; }
 
           # set_cfg SYMBOL y|n|value : drop old lines first, then append once
           set_cfg() {
@@ -544,9 +557,35 @@ jobs:
               echo "$1=$2" >> "$CONFIG_FILE"
             fi
           }
+
+          # TCP: exactly one default congestion control (BBR). Change to WESTWOOD if you prefer.
+          sed -i '/^CONFIG_DEFAULT_\(BIC\|CUBIC\|HTCP\|VEGAS\|WESTWOOD\|BBR\|RENO\)=y$/d' "$CONFIG_FILE"
+          set_cfg CONFIG_DEFAULT_BBR y
+
+          # ZRAM: single LZ4 default
+          sed -i '/^ZRAM_DEF_COMP_LZ4=y$/d;/^CONFIG_ZRAM_DEF_COMP_/d' "$CONFIG_FILE"
+          set_cfg CONFIG_ZRAM_DEF_COMP_LZ4 y
+
+      - name: "🧩 Add KSU defconfig options"
+        if: matrix.kernel.enable_ksu == true
+        shell: bash
+        working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
+        run: |
+          CONFIG_FILE="arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
+          KSU_KCONFIG="drivers/kernelsu/Kconfig"
+
+          [ -f "$KSU_KCONFIG" ] || { echo "❌ $KSU_KCONFIG not found"; exit 1; }
+
+          set_cfg() {
+            sed -i "/^$1=/d;/^# $1 is not set\$/d" "$CONFIG_FILE"
+            if [ "$2" = "n" ]; then
+              echo "# $1 is not set" >> "$CONFIG_FILE"
+            else
+              echo "$1=$2" >> "$CONFIG_FILE"
+            fi
+          }
           has_sym() { grep -qE "^[[:space:]]*config $1\$" "$KSU_KCONFIG"; }
 
-          # --- KernelSU ---
           set_cfg CONFIG_KSU y
           set_cfg CONFIG_DEBUG_INFO_BTF n
 
@@ -562,15 +601,13 @@ jobs:
             echo "ℹ️ KSU_WITH_KPROBES not defined by this BakaSU - skipping"
           fi
 
-          # --- TCP: exactly one default (BBR). Change to WESTWOOD if you prefer ---
-          sed -i '/^CONFIG_DEFAULT_\(BIC\|CUBIC\|HTCP\|VEGAS\|WESTWOOD\|BBR\|RENO\)=y$/d' "$CONFIG_FILE"
-          set_cfg CONFIG_DEFAULT_BBR y
+          grep -E 'KSU|KPM|KPROBES|DEFAULT_BBR|ZRAM_DEF|DEBUG_INFO_BTF' "$CONFIG_FILE" | head -40 || true
 
-          # --- ZRAM: fix the missing CONFIG_ prefix and keep a single default ---
-          sed -i '/^ZRAM_DEF_COMP_LZ4=y$/d;/^CONFIG_ZRAM_DEF_COMP_/d' "$CONFIG_FILE"
-          set_cfg CONFIG_ZRAM_DEF_COMP_LZ4 y
-
-          grep -E 'KSU|KPM|KPROBES|DEFAULT_BBR|ZRAM_DEF|DEBUG_INFO_BTF' "$CONFIG_FILE" | head -40
+      - name: "📝 Append custom Makefile line"
+        working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
+        run: |
+          echo 'KBUILD_CFLAGS += -Wno-implicit-function-declaration' >> Makefile
+          echo "Custom Makefile line added successfully"
 
       - name: "✅ Pre-build verification"
         if: matrix.kernel.enable_ksu == true
@@ -606,7 +643,7 @@ jobs:
           check "include/linux/susfs.h present"          test -f include/linux/susfs.h
           check "include/linux/susfs_def.h present"      test -f include/linux/susfs_def.h
           check "fs/Makefile builds susfs"               grep -q "susfs" fs/Makefile
-          check "no leftover .rej files"                 bash -c '! find . -name "*.rej" ! -name "mkcompile_h.rej" -print -quit | grep -q .'
+          check "no leftover .rej files"                 bash -c '! find . -name "*.rej" ! -name "mkcompile_h.rej" -not -path "./.git/*" -print -quit | grep -q .'
 
           echo "== defconfig: must be =y =="
           for s in KSU KSU_SUSFS KSU_SUSFS_SUS_PATH KSU_SUSFS_SUS_MOUNT KSU_SUSFS_SUS_KSTAT \
@@ -646,7 +683,7 @@ jobs:
           soft "app_profile.c uses current task pointer"  grep -q 'struct task_struct \*p = current' drivers/kernelsu/policy/app_profile.c
 
           echo "=== KSU related configs in defconfig ==="
-          grep -E 'KSU|KPM|KPROBES' "$CONFIG_FILE" | head -30
+          grep -E 'KSU|KPM|KPROBES' "$CONFIG_FILE" | head -30 || true
 
           echo "========================================="
           echo "  PASSED: $PASS | WARN: $WARN | FAILED: $FAIL"
@@ -657,7 +694,6 @@ jobs:
           fi
           echo "✅ All required checks passed - safe to build!"
 
-
       - name: "🔨 Build kernel"
         working-directory: ${{ env.WORK_DIR }}
         run: |
@@ -665,19 +701,44 @@ jobs:
           BUILD_CONFIG=${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}/build.config.gki.aarch64 \
           build/build.sh -j$(nproc --all)
 
-
-      - name: "🔐 Verify WireGuard Support"
+      - name: "🔍 Post-build verification"
+        shell: bash
         working-directory: ${{ env.WORK_DIR }}
         run: |
-          CONFIG="${{ env.WORK_DIR }}/out/.config"
+          CONFIG="out/.config"
+          IMG="out/dist/Image"
+          fail=0
 
-          if grep -q '^CONFIG_WIREGUARD=y' "$CONFIG"; then
-            echo "✅ WireGuard is built into the kernel"
-          else
-            echo "❌ WireGuard is not enabled!"
-            grep -i wireguard "$CONFIG" || true
-            exit 1
+          # Symbols that must resolve to =y in the FINAL .config (catches unmet dependencies)
+          syms="CONFIG_WIREGUARD"
+          if [ "${{ matrix.kernel.enable_ksu }}" = "true" ]; then
+            syms="$syms CONFIG_KSU CONFIG_KSU_SUSFS CONFIG_BBG CONFIG_CPU_FREQ_GOV_REFLEX CONFIG_CPU_FREQ_GOV_VORPAL"
           fi
+          for s in $syms; do
+            if grep -qx "$s=y" "$CONFIG"; then echo "✔ $s=y"; else echo "❌ $s is not =y in final .config"; fail=1; fi
+          done
+
+          if grep -qx "CONFIG_KSU_SUSFS_SUS_SU=y" "$CONFIG"; then
+            echo "❌ CONFIG_KSU_SUSFS_SUS_SU is enabled"; fail=1
+          fi
+
+          if [ -s "$IMG" ]; then
+            echo "✔ Image exists ($(du -h "$IMG" | cut -f1))"
+          else
+            echo "❌ Image missing or empty"; fail=1
+          fi
+
+          grep -aoE -m1 'Linux version [^ ]+' "$IMG" || true
+
+          if [ "${{ matrix.kernel.enable_ksu }}" = "true" ]; then
+            if grep -qai susfs "$IMG"; then
+              echo "✔ susfs strings present in Image"
+            else
+              echo "::warning::no susfs strings found in Image"
+            fi
+          fi
+
+          exit $fail
 
       - name: "📁 Copy kernel image"
         working-directory: ${{ env.WORK_DIR }}/out/dist
@@ -695,6 +756,8 @@ jobs:
     name: "📦 Package Kernels"
     runs-on: ubuntu-latest
     needs: [build-kernels]
+    outputs:
+      zip_name: ${{ steps.pkg.outputs.zip_name }}
     steps:
       - name: "📥 Download kernel artifacts"
         uses: actions/download-artifact@v4.3.0
@@ -702,6 +765,7 @@ jobs:
           path: ./artifacts/
 
       - name: "📦 Create release package"
+        id: pkg
         run: |
           set -e
 
@@ -710,31 +774,46 @@ jobs:
 
           # Copy kernel images
           find ./artifacts -name "Image.*" -exec cp {} AnyKernel3/ \;
+          ls AnyKernel3/Image.* >/dev/null || { echo "❌ No kernel image found in artifacts"; exit 1; }
 
           # Create ZIP
           ZIP_NAME="Anykernel3_YASK-BakaSU-CLO_$(date +'%Y-%m-%d').zip"
-          cd AnyKernel3
-          zip -r9 "../$ZIP_NAME" * -x .git/*
-          cd ..
+          (cd AnyKernel3 && zip -r9 "../$ZIP_NAME" . -x ".git/*")
 
-          echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
+          echo "zip_name=$ZIP_NAME" >> "$GITHUB_OUTPUT"
           echo "✅ Package created: $ZIP_NAME"
 
       - name: "⬆️ Upload to GitHub Release"
         uses: softprops/action-gh-release@v2
         env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN || github.token }}
         with:
-          files: ${{ env.ZIP_NAME }}
+          files: ${{ steps.pkg.outputs.zip_name }}
           tag_name: "YASK-NEXT"
 
+  notify:
+    name: "📱 Telegram notification"
+    runs-on: ubuntu-latest
+    needs: [build-kernels, package-kernels]
+    if: always()
+    steps:
       - name: "📱 Send Telegram Notification"
+        env:
+          BUILD_RESULT: ${{ needs.build-kernels.result }}
+          PACKAGE_RESULT: ${{ needs.package-kernels.result }}
+          ZIP_NAME: ${{ needs.package-kernels.outputs.zip_name }}
+          CHAT_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
+          BOT_TOKEN: ${{ secrets.TELEGRAM_YASK_BOT_TOKEN }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
         run: |
-          RELEASE_URL="https://github.com/${{ github.repository }}/releases/tag/YASK-NEXT"
+          RELEASE_URL="https://github.com/${REPO}/releases/tag/YASK-NEXT"
+          RUN_URL="https://github.com/${REPO}/actions/runs/${RUN_ID}"
           BANNER_URL="https://raw.githubusercontent.com/topnotchfreaks/kernel_msm-5.15/builder/assets/yask.png"
 
-          if [[ "${{ job.status }}" == "success" ]]; then
-            MESSAGE="✅ *YASK Kernel Released*
+          if [ "$BUILD_RESULT" = "success" ] && [ "$PACKAGE_RESULT" = "success" ]; then
+            MESSAGE=$(cat <<EOF
+          ✅ *YASK Kernel Released*
 
           📦 *Build Information:*
           • Kernel: \`Linux 5.15\`
@@ -761,20 +840,23 @@ jobs:
           • BakaSU
 
           🕐 *Build Date:* $(date '+%Y-%m-%d %H:%M:%S UTC')
-          📦 *Package:* \`${{ env.ZIP_NAME }}\`
+          📦 *Package:* \`${ZIP_NAME}\`
 
-          ⬇️ [Download Here]($RELEASE_URL)"
+          ⬇️ [Download Here](${RELEASE_URL})
+          EOF
+          )
 
             curl -s -X POST \
-              -d chat_id=${{ secrets.TELEGRAM_CHANNEL_ID }} \
+              -d chat_id="${CHAT_ID}" \
               -d photo="${BANNER_URL}" \
               --data-urlencode "caption=${MESSAGE}" \
               -d parse_mode="Markdown" \
               -d disable_web_page_preview="false" \
-              "https://api.telegram.org/bot${{ secrets.TELEGRAM_YASK_BOT_TOKEN }}/sendPhoto"
+              "https://api.telegram.org/bot${BOT_TOKEN}/sendPhoto"
 
           else
-            FAILURE_MSG="❌ *YASK Kernel Build Failed*
+            FAILURE_MSG=$(cat <<EOF
+          ❌ *YASK Kernel Build Failed*
 
           📦 *Build Information:*
           • Kernel: \`Linux 5.15\`
@@ -786,14 +868,18 @@ jobs:
           • Optimization: \`-O2\`
           • BBG: \`Enabled\`
 
+          🧱 *Build job:* ${BUILD_RESULT}
+          📦 *Package job:* ${PACKAGE_RESULT}
           🕐 *Failed at:* $(date '+%Y-%m-%d %H:%M:%S UTC')
 
-          🔍 Check the [workflow logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details."
+          🔍 Check the [workflow logs](${RUN_URL}) for details.
+          EOF
+          )
 
             curl -s -X POST \
-              -d chat_id=${{ secrets.TELEGRAM_CHANNEL_ID }} \
+              -d chat_id="${CHAT_ID}" \
               -d photo="${BANNER_URL}" \
               --data-urlencode "caption=${FAILURE_MSG}" \
               -d parse_mode="Markdown" \
-              "https://api.telegram.org/bot${{ secrets.TELEGRAM_YASK_BOT_TOKEN }}/sendPhoto"
+              "https://api.telegram.org/bot${BOT_TOKEN}/sendPhoto"
           fi
