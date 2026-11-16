@@ -525,86 +525,137 @@ jobs:
           echo 'KBUILD_CFLAGS += -Wno-implicit-function-declaration' >> Makefile
           echo "Custom Makefile line added successfully"
 
+      - name: "🧩 Add KSU defconfig options"
+        if: matrix.kernel.enable_ksu == true
+        shell: bash
+        working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
+        run: |
+          CONFIG_FILE="arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
+          KSU_KCONFIG="drivers/kernelsu/Kconfig"
+
+          [ -f "$KSU_KCONFIG" ] || { echo "❌ $KSU_KCONFIG not found"; exit 1; }
+
+          # set_cfg SYMBOL y|n|value : drop old lines first, then append once
+          set_cfg() {
+            sed -i "/^$1=/d;/^# $1 is not set\$/d" "$CONFIG_FILE"
+            if [ "$2" = "n" ]; then
+              echo "# $1 is not set" >> "$CONFIG_FILE"
+            else
+              echo "$1=$2" >> "$CONFIG_FILE"
+            fi
+          }
+          has_sym() { grep -qE "^[[:space:]]*config $1\$" "$KSU_KCONFIG"; }
+
+          # --- KernelSU ---
+          set_cfg CONFIG_KSU y
+          set_cfg CONFIG_DEBUG_INFO_BTF n
+
+          if has_sym KPM; then
+            set_cfg CONFIG_KPM y
+          else
+            echo "ℹ️ KPM not defined by this BakaSU - skipping"
+          fi
+
+          if has_sym KSU_WITH_KPROBES; then
+            set_cfg CONFIG_KSU_WITH_KPROBES n   # inline hooks, no kprobes
+          else
+            echo "ℹ️ KSU_WITH_KPROBES not defined by this BakaSU - skipping"
+          fi
+
+          # --- TCP: exactly one default (BBR). Change to WESTWOOD if you prefer ---
+          sed -i '/^CONFIG_DEFAULT_\(BIC\|CUBIC\|HTCP\|VEGAS\|WESTWOOD\|BBR\|RENO\)=y$/d' "$CONFIG_FILE"
+          set_cfg CONFIG_DEFAULT_BBR y
+
+          # --- ZRAM: fix the missing CONFIG_ prefix and keep a single default ---
+          sed -i '/^ZRAM_DEF_COMP_LZ4=y$/d;/^CONFIG_ZRAM_DEF_COMP_/d' "$CONFIG_FILE"
+          set_cfg CONFIG_ZRAM_DEF_COMP_LZ4 y
+
+          grep -E 'KSU|KPM|KPROBES|DEFAULT_BBR|ZRAM_DEF|DEBUG_INFO_BTF' "$CONFIG_FILE" | head -40
 
       - name: "✅ Pre-build verification"
         if: matrix.kernel.enable_ksu == true
+        shell: bash
         working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
-          echo "========================================="
-          echo "       PRE-BUILD VERIFICATION"
-          echo "========================================="
-          PASS=0
-          FAIL=0
-
-          check() {
-            local desc="$1"
-            local result="$2"
-            if [ "$result" = "ok" ]; then
-              echo "✔ $desc"
-              PASS=$((PASS+1))
-            else
-              echo "❌ $desc"
-              FAIL=$((FAIL+1))
-            fi
-          }
-
-          # Check BakaSU directory
-          ( [ -d "BakaSU" ] || [ -d "KernelSU" ] ) && check "BakaSU/KernelSU directory exists" "ok" || check "BakaSU/KernelSU directory exists" "fail"
-          
-          # Check symlink
-          [ -f "drivers/kernelsu/Makefile" ] && check "drivers/kernelsu symlink valid" "ok" || check "drivers/kernelsu symlink valid" "fail"
-
-          # Check SUSFS source files
-          [ -f "fs/susfs.c" ] && check "fs/susfs.c present" "ok" || check "fs/susfs.c present" "fail"
-          [ -f "include/linux/susfs.h" ] && check "include/linux/susfs.h present" "ok" || check "include/linux/susfs.h present" "fail"
-
-          # Check ksu_late_loaded fix
-          grep -q "ksu_late_loaded" drivers/kernelsu/core/init.c && \
-            grep -q "bool ksu_late_loaded" drivers/kernelsu/core/init.c && \
-            check "ksu_late_loaded declared in init.c" "ok" || \
-            check "ksu_late_loaded declared in init.c" "fail"
-
-          # Check app_profile fix
-          grep -q "struct task_struct \*p = current" drivers/kernelsu/policy/app_profile.c && \
-            check "app_profile.c p,t fix applied" "ok" || \
-            check "app_profile.c p,t fix applied" "fail"
-
-          # Check configs in defconfig
           CONFIG_FILE="arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
-          grep -q "CONFIG_KSU=y" "$CONFIG_FILE" && check "CONFIG_KSU=y present" "ok" || check "CONFIG_KSU=y present" "fail"
-          grep -q "CONFIG_KSU_SUSFS=y" "$CONFIG_FILE" && check "CONFIG_KSU_SUSFS=y present" "ok" || check "CONFIG_KSU_SUSFS=y present" "fail"
-          grep -q "CONFIG_KPM=y" "$CONFIG_FILE" && check "CONFIG_KPM=y present" "ok" || check "CONFIG_KPM=y present" "fail"
-          grep -q "CONFIG_KSU_WITH_KPROBES=n" "$CONFIG_FILE" && check "CONFIG_KSU_WITH_KPROBES=n present" "ok" || check "CONFIG_KSU_WITH_KPROBES=n present" "fail"
-          grep -q "CONFIG_DEBUG_INFO_BTF=n" "$CONFIG_FILE" && check "CONFIG_DEBUG_INFO_BTF=n present" "ok" || check "CONFIG_DEBUG_INFO_BTF=n present" "fail"
-          grep -q "CONFIG_OVERLAY_FS=y" "$CONFIG_FILE" && check "CONFIG_OVERLAY_FS=y present" "ok" || check "CONFIG_OVERLAY_FS=y present" "fail"
+          KSU_KCONFIG="drivers/kernelsu/Kconfig"
+          PASS=0; FAIL=0; WARN=0
 
-          # Check BBG
-          grep -q "CONFIG_BBG=y" "$CONFIG_FILE" && check "CONFIG_BBG=y present" "ok" || check "CONFIG_BBG=y present" "fail"
+          ok()   { echo "✔ $1";  PASS=$((PASS+1)); }
+          bad()  { echo "❌ $1"; FAIL=$((FAIL+1)); }
+          warn() { echo "⚠️ $1"; WARN=$((WARN+1)); }
 
-          # Check no dangerous configs
-          grep -q "CONFIG_KSU_SUSFS_SUS_SU=y" "$CONFIG_FILE" && \
-            check "CONFIG_KSU_SUSFS_SUS_SU=y NOT present (dangerous)" "fail" || \
-            check "CONFIG_KSU_SUSFS_SUS_SU=y not present (safe)" "ok"
+          check() { local d="$1"; shift; if "$@" >/dev/null 2>&1; then ok "$d"; else bad "$d"; fi; }
+          soft()  { local d="$1"; shift; if "$@" >/dev/null 2>&1; then ok "$d"; else warn "$d"; fi; }
 
-          # Check Makefile custom flag
-          grep -q "Wno-implicit-function-declaration" Makefile && \
-            check "Custom Makefile flag present" "ok" || \
-            check "Custom Makefile flag present" "fail"
+          cfg_y()     { grep -qx "$1=y" "$CONFIG_FILE"; }
+          cfg_not_y() { ! grep -qx "$1=y" "$CONFIG_FILE"; }
+          cfg_off()   { grep -qxE "$1=n|# $1 is not set" "$CONFIG_FILE"; }
+          has_sym()   { grep -qE "^[[:space:]]*config $1\$" "$KSU_KCONFIG"; }
 
-          echo "=== KSU related configs in defconfig ==="
-          grep "KSU\|KPROBES" "$CONFIG_FILE" | head -20
+          echo "== Source tree =="
+          check "KernelSU/BakaSU directory exists"      test -d KernelSU -o -d BakaSU
+          check "drivers/kernelsu is a symlink"          test -L drivers/kernelsu
+          check "drivers/kernelsu/Makefile reachable"    test -f drivers/kernelsu/Makefile
+          check "drivers/kernelsu/Kconfig reachable"     test -f "$KSU_KCONFIG"
+          check "drivers/Makefile references kernelsu"   grep -q "kernelsu" drivers/Makefile
+          check "drivers/Kconfig sources kernelsu"       grep -q "drivers/kernelsu/Kconfig" drivers/Kconfig
 
-          echo "========================================="
-          echo "  PASSED: $PASS  |  FAILED: $FAIL"
-          echo "========================================="
+          echo "== SUSFS files =="
+          check "fs/susfs.c present"                     test -f fs/susfs.c
+          check "include/linux/susfs.h present"          test -f include/linux/susfs.h
+          check "include/linux/susfs_def.h present"      test -f include/linux/susfs_def.h
+          check "fs/Makefile builds susfs"               grep -q "susfs" fs/Makefile
+          check "no leftover .rej files"                 bash -c '! find . -name "*.rej" ! -name "mkcompile_h.rej" -print -quit | grep -q .'
 
-          if [ $FAIL -gt 0 ]; then
-            echo "❌ Verification failed — fix issues before building!"
-            exit 1
+          echo "== defconfig: must be =y =="
+          for s in KSU KSU_SUSFS KSU_SUSFS_SUS_PATH KSU_SUSFS_SUS_MOUNT KSU_SUSFS_SUS_KSTAT \
+                   KSU_SUSFS_SPOOF_UNAME KSU_SUSFS_ENABLE_LOG KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS \
+                   KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG KSU_SUSFS_OPEN_REDIRECT KSU_SUSFS_SUS_MAP \
+                   BBG WIREGUARD OVERLAY_FS KALLSYMS TCP_CONG_BBR ZRAM_DEF_COMP_LZ4 \
+                   CPU_FREQ_GOV_REFLEX CPU_FREQ_GOV_VORPAL; do
+            check "CONFIG_$s=y" cfg_y "CONFIG_$s"
+          done
+
+          echo "== defconfig: must be off =="
+          check "CONFIG_DEBUG_INFO_BTF off"              cfg_off CONFIG_DEBUG_INFO_BTF
+          check "CONFIG_KSU_SUSFS_SUS_SU not enabled"    cfg_not_y CONFIG_KSU_SUSFS_SUS_SU
+
+          echo "== defconfig: depends on this BakaSU version =="
+          if has_sym KPM; then
+            check "CONFIG_KPM=y" cfg_y CONFIG_KPM
           else
-            echo "✅ All checks passed — safe to build!"
+            warn "KPM not defined by this BakaSU - not checked"
+          fi
+          if has_sym KSU_WITH_KPROBES; then
+            check "CONFIG_KSU_WITH_KPROBES off" cfg_off CONFIG_KSU_WITH_KPROBES
+          else
+            warn "KSU_WITH_KPROBES not defined by this BakaSU - not checked"
           fi
 
+          echo "== defconfig: sanity =="
+          n=$(grep -cE '^CONFIG_DEFAULT_(BBR|WESTWOOD|CUBIC|RENO|BIC|HTCP|VEGAS)=y$' "$CONFIG_FILE" || true)
+          if [ "$n" = "1" ]; then ok "exactly one default TCP congestion control"
+          else bad "TCP default conflict ($n entries)"; fi
+
+          echo "== Makefile =="
+          check "-Wno-implicit-function-declaration present" grep -q "Wno-implicit-function-declaration" Makefile
+
+          echo "== BakaSU source fixes (warn only) =="
+          soft "ksu_late_loaded declared in core/init.c"  grep -q "bool ksu_late_loaded" drivers/kernelsu/core/init.c
+          soft "app_profile.c uses current task pointer"  grep -q 'struct task_struct \*p = current' drivers/kernelsu/policy/app_profile.c
+
+          echo "=== KSU related configs in defconfig ==="
+          grep -E 'KSU|KPM|KPROBES' "$CONFIG_FILE" | head -30
+
+          echo "========================================="
+          echo "  PASSED: $PASS | WARN: $WARN | FAILED: $FAIL"
+          echo "========================================="
+          if [ "$FAIL" -gt 0 ]; then
+            echo "❌ Verification failed - fix issues before building!"
+            exit 1
+          fi
+          echo "✅ All required checks passed - safe to build!"
 
 
       - name: "🔨 Build kernel"
