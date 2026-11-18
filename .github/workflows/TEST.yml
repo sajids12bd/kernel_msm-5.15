@@ -1,4 +1,4 @@
-name: "Build TEST"
+name: "Build XStock-MULTI"
 
 env:
   OUT_DIR: "out"
@@ -6,11 +6,13 @@ env:
   ANDROID_VERSION: "13"
 
 on:
+  schedule:
+    - cron: '0 0 * * 1'
   workflow_dispatch:
-        
+
 jobs:
   build-kernels:
-    name: "🐎 Build YASK ${{ matrix.kernel.name }} kernel"
+    name: "🐎 Build XStock ${{ matrix.kernel.name }} kernel"
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -22,15 +24,56 @@ jobs:
             repo_url: "https://android.googlesource.com/kernel/common"
             branch: "android13-5.15-lts"
             defconfig: "gki_defconfig"
-            local_version: "-YASK-GKI"
+            local_version: "-XStock-GKI"
             output_name: "Image.gki.ksu"
             enable_ksu: true
             extra_patches:
               - "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-gki-fixup.patch"
-              - "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-scripts-sign-builds.patch"
+              - "https://raw.githubusercontent.com/yougotme101/kernel_patches/main/0001-scripts-sign-builds.patch"
               - "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-scripts-Don-t-append-and-dirty-to-localversion.patch"
               - "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-scripts-do-not-ship-full-auto_localversion.patch"
-          
+          - name: "CLO"
+            dir: "common_clo"
+            repo_name: "clo"
+            repo_url: "https://git.codelinaro.org/clo/la/kernel/msm-5.15.git"
+            branch: "kernel.lnx.5.15.r1-rel"
+            defconfig: "gki_defconfig"
+            local_version: "-XStock-CLO"
+            output_name: "Image.clo.ksu"
+            enable_ksu: true
+            extra_patches:
+              - "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-gki-fixup.patch"
+              - "https://raw.githubusercontent.com/yougotme101/kernel_patches/main/0001-scripts-sign-builds.patch"
+              - "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-scripts-Don-t-append-and-dirty-to-localversion.patch"
+              - "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-scripts-do-not-ship-full-auto_localversion.patch"
+          - name: "GKI-NoKSU"
+            dir: "common_gki_noksu"
+            repo_name: "common"
+            repo_url: "https://android.googlesource.com/kernel/common"
+            branch: "android13-5.15-lts"
+            defconfig: "gki_defconfig"
+            local_version: "-XStock-GKI"
+            output_name: "Image.gki.noksu"
+            enable_ksu: false
+            extra_patches:
+              - "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-gki-fixup.patch"
+              - "https://raw.githubusercontent.com/yougotme101/kernel_patches/main/0001-scripts-sign-builds.patch"
+              - "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-scripts-Don-t-append-and-dirty-to-localversion.patch"
+              - "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-scripts-do-not-ship-full-auto_localversion.patch"
+          - name: "CLO-NoKSU"
+            dir: "common_clo_noksu"
+            repo_name: "clo"
+            repo_url: "https://git.codelinaro.org/clo/la/kernel/msm-5.15.git"
+            branch: "kernel.lnx.5.15.r1-rel"
+            defconfig: "gki_defconfig"
+            local_version: "-XStock-CLO"
+            output_name: "Image.clo.noksu"
+            enable_ksu: false
+            extra_patches:
+              - "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-gki-fixup.patch"
+              - "https://raw.githubusercontent.com/yougotme101/kernel_patches/main/0001-scripts-sign-builds.patch"
+              - "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-scripts-Don-t-append-and-dirty-to-localversion.patch"
+              - "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-scripts-do-not-ship-full-auto_localversion.patch"
 
     env:
       KERNEL_LOC_DIR: ${{ matrix.kernel.dir }}
@@ -50,10 +93,33 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y repo rsync aria2
 
-      - name: 📐 Setup SWAP 10GB
+      - name: 🔍 Check Space (Before Cleanup)
+        run: |
+          echo "Disk space before cleanup:"
+          df -h /
+
+      - name: 🧹 Aggressive Cleanup
+        run: |
+          # Remove heavy pre-installed tools
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf "/usr/local/share/boost"
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          
+          # Prune Docker to remove hidden images and build cache
+          sudo docker image prune --all --force
+          sudo docker builder prune -a -f
+
+      - name: 🔍 Check Space (After Cleanup)
+        run: |
+          echo "Disk space after cleanup:"
+          df -h /
+          
+      - name: 📐 Setup SWAP 14GB
         uses: pierotofy/set-swap-space@master
         with:
-            swap-size-gb: 10
+            swap-size-gb: 14
             
       - name: 📐 Tune Swap
         run: |
@@ -78,25 +144,28 @@ jobs:
           rm -rf common
 
           # Download and setup custom clang toolchain
-          aria2c -x 16 -s 16 -o prebuilts/clang/host/linux-x86/clang-r547379.tar.gz "https://github.com/topnotchfreaks/clang/releases/download/v1.0.0/clang-r547379.tar.gz"
-          mkdir -p prebuilts/clang/host/linux-x86/clang-r547379
-          tar -xzf prebuilts/clang/host/linux-x86/clang-r547379.tar.gz -C prebuilts/clang/host/linux-x86/clang-r547379
-          rm -rf prebuilts/clang/host/linux-x86/clang-r547379.tar.gz
+          aria2c -x 16 -s 16 -o prebuilts/clang/host/linux-x86/clang-r614150.tar.gz "https://github.com/yougotme101/clang/releases/download/v1.0.2/clang-r614150.tar.gz"
+          mkdir -p prebuilts/clang/host/linux-x86/clang-r614150
+          tar -xzf prebuilts/clang/host/linux-x86/clang-r614150.tar.gz -C prebuilts/clang/host/linux-x86/clang-r614150
+          rm -rf prebuilts/clang/host/linux-x86/clang-r614150.tar.gz
 
           # Remove unused clang for more space
           rm -rf prebuilts/clang/host/linux-x86/clang-3289846
           rm -rf prebuilts/clang/host/linux-x86/clang-r450784e
+          rm -rf prebuilts/clang/host/linux-x86/clang-r547379
+          rm -rf prebuilts/clang/host/linux-x86/clang-r584948b
+          rm -rf prebuilts/clang/host/linux-x86/clang-r596125
           rm -rf prebuilts/clang/host/linux-x86/clang-stable
           
           # Update build config constants
           sed -i \
            -e 's/^BRANCH=.*/BRANCH=android13-5.15/' \
-           -e 's/^CLANG_VERSION=.*/CLANG_VERSION=r547379/' \
+           -e 's/^CLANG_VERSION=.*/CLANG_VERSION=r614150/' \
            ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}/build.config.constants
           
           # Remove defconfig check (if exists)
           sed -i '/^POST_DEFCONFIG_CMDS="check_defconfig"/d' ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}/build.config.gki || true
-
+          
       - name: "🧩 Configure kernel & patches"
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
@@ -113,232 +182,391 @@ jobs:
             rm -f "$file"
           }
 
-          # Apply patches
+          # Common patches
+          apply_patch "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-gki-fixup.patch"
+
+          # Kernel-specific patches
           echo '${{ toJSON(matrix.kernel.extra_patches) }}' | jq -r '.[]' | while read p; do
             [ -n "$p" ] && apply_patch "$p"
           done
 
-      - name: "🔧 Add BBG Support (KSU variant only)"
-        if: matrix.kernel.enable_ksu == true
-        working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
+          # Basic optimizations
+          echo "CONFIG_KALLSYMS=y" >> "$CONFIG_FILE"
+
+          # Extra Addon and Performance configs
+          echo "CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y" >> "$CONFIG_FILE"
+          echo "CONFIG_TCP_CONG_ADVANCED=y" >> "$CONFIG_FILE"
+          echo "CONFIG_TCP_CONG_BIC=n" >> "$CONFIG_FILE"
+          echo "CONFIG_TCP_CONG_WESTWOOD=y" >> "$CONFIG_FILE"
+          echo "CONFIG_TCP_CONG_HTCP=n" >> "$CONFIG_FILE"
+          echo "CONFIG_TCP_CONG_BBR=y" >> "$CONFIG_FILE"
+          echo "CONFIG_DEFAULT_BBR=y" >> "$CONFIG_FILE"
+          echo "CONFIG_OVERLAY_FS=y" >> "$CONFIG_FILE"
+          echo "CONFIG_TMPFS_XATTR=y" >> "$CONFIG_FILE"
+          echo "CONFIG_TMPFS_POSIX_ACL=y" >> "$CONFIG_FILE"
+          echo "CONFIG_WQ_POWER_EFFICIENT_DEFAULT=y" >> "$CONFIG_FILE"
+          echo "CONFIG_PM_WAKELOCKS=y" >> "$CONFIG_FILE"
+          echo "CONFIG_PM_WAKELOCKS_LIMIT=100" >> "$CONFIG_FILE"
+          echo "CONFIG_PM_WAKELOCKS_GC=y" >> "$CONFIG_FILE"
+          echo "CONFIG_SUSPEND=y" >> "$CONFIG_FILE"
+          echo "CONFIG_SUSPEND_FREEZER=y" >> "$CONFIG_FILE"
+          echo "# CONFIG_KERNEL_GZIP is not set" >> "$CONFIG_FILE"
+          echo "# CONFIG_KERNEL_LZO is not set" >> "$CONFIG_FILE"
+          echo "# CONFIG_KERNEL_XZ is not set" >> "$CONFIG_FILE"
+          echo "# CONFIG_KERNEL_ZSTD is not set" >> "$CONFIG_FILE"
+          echo "# CONFIG_KERNEL_BZIP2 is not set" >> "$CONFIG_FILE"
+          echo "# CONFIG_KERNEL_UNCOMPRESSED is not set" >> "$CONFIG_FILE"
+          sed -i '/ZRAM_DEF_COMP_LZO/d' "$CONFIG_FILE"
+          echo "CONFIG_CRYPTO_LZ4=y" >> "$CONFIG_FILE"
+          echo "CONFIG_KERNEL_LZ4=y" >> "$CONFIG_FILE"
+          echo "ZRAM_DEF_COMP_LZ4=y" >> "$CONFIG_FILE"
+
+      - name: '⚙️ Inject Reflex Governor'
+        shell: bash
+        working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
-          echo "Adding BBG...";
+          set -euo pipefail
+
+          mkdir -p kernel/sched
+          curl -sL -o kernel/sched/cpufreq_reflex.c \
+            "https://raw.githubusercontent.com/kusonekoworld-max/KonekoKernel-GKI/refs/heads/main/.github/actions/build-kernel/patches/reflex/cpufreq_reflex.c"
+
+          if ! grep -q "cpufreq_reflex.o" "kernel/sched/Makefile"; then
+            echo 'obj-$(CONFIG_CPU_FREQ_GOV_REFLEX) += cpufreq_reflex.o' >> "kernel/sched/Makefile"
+          fi
+
+          if ! grep -q "config CPU_FREQ_GOV_REFLEX" "drivers/cpufreq/Kconfig"; then
+            printf "\nconfig CPU_FREQ_GOV_REFLEX\n" >> "drivers/cpufreq/Kconfig"
+            printf "\ttristate \"'reflex' cpufreq governor\"\n" >> "drivers/cpufreq/Kconfig"
+            printf "\tdepends on CPU_FREQ && SMP\n" >> "drivers/cpufreq/Kconfig"
+            printf "\tselect CPU_FREQ_GOV_ATTR_SET\n" >> "drivers/cpufreq/Kconfig"
+            printf "\thelp\n" >> "drivers/cpufreq/Kconfig"
+            printf "\t  'reflex' is an advanced CPU frequency governor based on schedutil,\n" >> "drivers/cpufreq/Kconfig"
+            printf "\t  featuring idle-time accounting and PELT-complementary exponential decay.\n" >> "drivers/cpufreq/Kconfig"
+          fi
+
+          CONFIG_FILE="arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
+          if [ -f "$CONFIG_FILE" ]; then
+            if ! grep -q "CONFIG_CPU_FREQ_GOV_REFLEX" "$CONFIG_FILE"; then
+              echo "CONFIG_CPU_FREQ_GOV_REFLEX=y" >> "$CONFIG_FILE"
+            fi
+          fi
+          
+          echo "🎉 Inject Reflex Governor setup complete!"
+
+      - name: 'Inject Vorpal Governor + GKI510 Compat'
+        shell: bash
+        working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p kernel/sched
+          curl -sL -o kernel/sched/cpufreq_vorpal.c \
+            "https://raw.githubusercontent.com/yougotme101/KonekoKernel-GKI/refs/heads/main/.github/actions/build-kernel/patches/vorpal/cpufreq_vorpal.c"
+          curl -sL -o kernel/sched/rfx_gki510_compat.c \
+            "https://raw.githubusercontent.com/yougotme101/KonekoKernel-GKI/refs/heads/main/.github/actions/build-kernel/patches/vorpal/rfx_gki510_compat.c"
+            
+          if ! grep -q "cpufreq_vorpal.o" "kernel/sched/Makefile"; then
+            echo 'obj-$(CONFIG_CPU_FREQ_GOV_VORPAL) += cpufreq_vorpal.o' >> "kernel/sched/Makefile"
+          fi
+
+          if ! grep -q "rfx_gki510_compat.o" "kernel/sched/Makefile"; then
+            echo 'obj-y += rfx_gki510_compat.o' >> "kernel/sched/Makefile"
+          fi
+
+          if ! grep -q "config CPU_FREQ_GOV_VORPAL" "drivers/cpufreq/Kconfig"; then
+            printf "\nconfig CPU_FREQ_GOV_VORPAL\n" >> "drivers/cpufreq/Kconfig"
+            printf "\ttristate \"'vorpal' cpufreq governor\"\n" >> "drivers/cpufreq/Kconfig"
+            printf "\tdepends on CPU_FREQ && SMP\n" >> "drivers/cpufreq/Kconfig"
+            printf "\tselect CPU_FREQ_GOV_ATTR_SET\n" >> "drivers/cpufreq/Kconfig"
+            printf "\thelp\n" >> "drivers/cpufreq/Kconfig"
+            printf "\t  'vorpal' is a schedutil-based governor tuned for\n" >> "drivers/cpufreq/Kconfig"
+            printf "\t  gaming/thermal-aware dual-profile operation.\n" >> "drivers/cpufreq/Kconfig"
+          fi
+
+          CONFIG_FILE="arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"          
+          if [ -f "$CONFIG_FILE" ] && ! grep -q "CONFIG_CPU_FREQ_GOV_VORPAL" "$CONFIG_FILE"; then
+            echo "CONFIG_CPU_FREQ_GOV_VORPAL=y" >> "$CONFIG_FILE"
+          fi
+
+      - name: 'Fix Vorpal Input-Handler Init Bug'
+        shell: bash
+        working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
+        run: |
+          set -euo pipefail
+          VORPAL_C="kernel/sched/cpufreq_vorpal.c"
+
+          if ! grep -q "bool input_ok;" "$VORPAL_C"; then
+           perl -0pi -e 's{(static int __init vorpal_gov_init\(void\)\n\{\n\tint ret;\n)}{$1\tbool input_ok;\n}' "$VORPAL_C"
+          fi
+
+          if ! grep -q "input_ok = !input_register_handler" "$VORPAL_C"; then
+            perl -0pi -e 's{\tif \(input_register_handler\(&rfx_input_handler\)\)\n\t\tpr_warn\("vorpal: input handler register failed \(touch boost off\)\\n"\);}{\tinput_ok = !input_register_handler(&rfx_input_handler);\n\tif (!input_ok)\n\t\tpr_warn("vorpal: input handler register failed (touch boost off)\\n");}' "$VORPAL_C"
+          fi
+
+          if ! grep -q "if (input_ok)" "$VORPAL_C"; then
+            perl -0pi -e 's{\tret = cpufreq_register_governor\(&vorpal_gov\);\n\tif \(ret\) \{\n\t\tinput_unregister_handler\(&rfx_input_handler\);\n\t\tcancel_delayed_work_sync\(&rfx_thermal_work\);\n\t\}}{\tret = cpufreq_register_governor(&vorpal_gov);\n\tif (ret) \{\n\t\tif (input_ok)\n\t\t\tinput_unregister_handler(&rfx_input_handler);\n\t\tcancel_delayed_work_sync(&rfx_thermal_work);\n\t\}}' "$VORPAL_C"
+          fi
+
+          if ! grep -q "bool input_ok;" "$VORPAL_C"; then
+            echo "ERROR: failed to inject 'bool input_ok;' into vorpal_gov_init()" >&2
+            exit 1
+          fi
+          if ! grep -q "input_ok = !input_register_handler" "$VORPAL_C"; then
+            echo "ERROR: failed to patch input_register_handler() call in vorpal_gov_init()" >&2
+            exit 1
+          fi
+          if ! grep -q "if (input_ok)" "$VORPAL_C"; then
+            echo "ERROR: failed to guard input_unregister_handler() in vorpal_gov_init() error path" >&2
+            exit 1
+          fi
+
+      - name: 'Inject Vorpal Gaming-Mode Bias into fair.c'
+        shell: bash
+        working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
+        run: |
+          set -euo pipefail
+          FAIR_C="kernel/sched/fair.c"
+
+          if ! grep -q "extern int sched_gaming_active;" "$FAIR_C"; then
+            perl -0pi -e 's{(static unsigned int normalized_sysctl_sched_latency\s*=\s*6000000ULL;)}{$1\n\nextern int sched_gaming_active;\n\n#define GAMING_VRUNTIME_STRETCH\t\t4\n}' "$FAIR_C"
+          fi
+
+          if ! grep -q "GAMING_VRUNTIME_STRETCH - 1" "$FAIR_C"; then
+            perl -0pi -e 's{(\tcurr->vruntime \+= calc_delta_fair\(delta_exec, curr\);\n)(\tupdate_min_vruntime\(cfs_rq\);\n)}{$1\n\tif (unlikely(sched_gaming_active \&\& !entity_is_task(curr))) {\n\t\tcurr->vruntime += calc_delta_fair(delta_exec * (GAMING_VRUNTIME_STRETCH - 1), curr);\n\t} else if (unlikely(sched_gaming_active \&\& entity_is_task(curr) \&\&\n\t\t\t     curr->avg.load_avg < 100)) {\n\t\tcurr->vruntime += calc_delta_fair(delta_exec, curr);\n\t}\n$2}' "$FAIR_C"
+          fi
+
+          if ! grep -q "ideal_runtime / 2" "$FAIR_C"; then
+            perl -0pi -e 's{(\tdelta_exec = curr->sum_exec_runtime - curr->prev_sum_exec_runtime;\n)(\ttrace_android_rvh_check_preempt_tick)}{$1\n\tif (unlikely(sched_gaming_active) \&\& entity_is_task(curr)) {\n\t\tstruct task_struct *p = task_of(curr);\n\n\t\tif (p->static_prio > DEFAULT_PRIO \&\n\t\t    delta_exec > ideal_runtime / 2)\n\t\t\tresched_curr(rq_of(cfs_rq));\n\t}\n\n$2}' "$FAIR_C"
+          fi
+
+          if ! grep -q "NSEC_PER_MSEC" "$FAIR_C"; then
+            perl -0pi -e 's{(\tfor_each_sched_entity\(se\) \{\n\t\tcfs_rq = cfs_rq_of\(se\);\n\n)(\t\tupdate_load_avg\(cfs_rq, se, UPDATE_TG\);\n\t\tse_update_runnable\(se\);\n\t\tupdate_cfs_group\(se\);)}{$1\t\tif (unlikely(sched_gaming_active \&\& entity_is_task(se) \&\&\n\t\t\t     task_of(se)->static_prio <= DEFAULT_PRIO))\n\t\t\tse->vruntime -= min_t(u64, se->vruntime, NSEC_PER_MSEC);\n\n$2}' "$FAIR_C"
+          fi
+
+          if ! grep -q "Gaming task isolation" "$FAIR_C"; then
+            perl -0pi -e 's{(\tdelta = rq_clock_task\(env->src_rq\) - p->se\.exec_start;\n\n)(\treturn delta < \(s64\)sysctl_sched_migration_cost;\n\}\n)}{$1\t/* Gaming task isolation */\n\tif (sched_gaming_active) {\n\t\tif (capacity_orig_of(env->dst_cpu) < capacity_orig_of(env->src_cpu) \&\&\n\t\t    task_util(p) > (capacity_orig_of(env->src_cpu) >> 3))\n\t\t\treturn 1;\n\t\treturn delta < (s64)sysctl_sched_migration_cost * 2;\n\t}\n\n$2}' "$FAIR_C"
+          fi
+
+          for MARK in "extern int sched_gaming_active;" "GAMING_VRUNTIME_STRETCH - 1" "ideal_runtime / 2" "NSEC_PER_MSEC" "Gaming task isolation"; do
+            if ! grep -qF "$MARK" "$FAIR_C"; then
+              echo "ERROR: failed to inject fair.c gaming patch, missing marker: $MARK" >&2
+              exit 1
+            fi
+          done
+
+      - name: "🚀 Add Droidspaces Support (fix KABI sysvipc)"
+        working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
+        run: |
+          curl -sL "https://raw.githubusercontent.com/ravindu644/Droidspaces-OSS/main/Documentation/resources/kernel-patches/GKI/below-kernel-6.12/001.GKI-below-6.12-fix_sysvipc_kabi_6_7_8.patch" | git apply -v --ignore-whitespace
+          
+      - name: "😋 Add BBG Support"
+        if: matrix.kernel.enable_ksu == true
+        working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
+        run: |
+          echo "Adding BBG..."
           wget -O- https://github.com/vc-teahouse/Baseband-guard/raw/main/setup.sh | bash
           echo "CONFIG_BBG=y" >> arch/arm64/configs/${{ env.DEFCONFIG_NAME }}
           sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/selinux/selinux,baseband_guard/ } }' security/Kconfig
 
-      - name: "🔧 Setup ReSukiSU"
-        if: matrix.kernel.enable_ksu == true
-        working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
-        env:
-          RESUKISU_REF: "9a335d11d9ec8a99f1c37d8f13dd0ebaf85227aa"   # e.g. v4.1.0, paired with SUSFS pin
+      - name: "🔧 Add NoMount Support"
+        working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
-          set -e
+          curl -LSs "https://raw.githubusercontent.com/maxsteeel/nomount/refs/heads/dev/kernel/setup.sh" | bash -
 
+      - name: "🔧 Setup KSU"
+        if: matrix.kernel.enable_ksu == true
+        working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
+        run: |
           rm -rf ./KernelSU ./drivers/kernelsu
 
-          echo "📦 Installing ReSukiSU (target ref: ${{ env.RESUKISU_REF }})..."
-          curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" \
-            | bash -s "${{ env.RESUKISU_REF }}"
+          echo "📦 Installing KSU..."
+          curl -LSs "https://raw.githubusercontent.com/Baka-SU/BakaSU/sync-up/kernel/setup.sh" | bash -s -- sync-up
 
-          # setup.sh silently falls back to `main` if the ref doesn't exist
-          # (it swallows the checkout failure with `|| echo`). Detect that
-          # here and surface it as a visible warning instead of a silent
-          # mismatch, but don't fail the build.
-          cd KernelSU
-          ACTUAL_SHA=$(git rev-parse HEAD)
-          if TARGET_SHA=$(git rev-parse "${{ env.RESUKISU_REF }}" 2>/dev/null) && \
-             [ "$TARGET_SHA" = "$ACTUAL_SHA" ]; then
-            echo "✅ ReSukiSU pinned to ${{ env.RESUKISU_REF }} ($ACTUAL_SHA)"
+          
+          echo "✔ KSU installed successfully"
+          
+          # Clone SUSFS4KSU for kernel patches only (not KSU integration)
+          echo "📦 Cloning SUSFS4KSU for kernel patches..."
+          git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android13-5.15
+
+          # echo "☣️ Applying namespace.c Fake Patch (if applicable)"
+          # if grep -q '^#include <trace/hooks/blk.h>$' fs/namespace.c; then
+          #  sed -i '/^#include <trace\/hooks\/blk.h>$/d' fs/namespace.c
+          #  NS_FAKE_PATCHED=1
+          # else
+          #  echo "ℹ️ blk.h include not present in fs/namespace.c — skipping fake patch"
+          #  NS_FAKE_PATCHED=0
+          # fi
+
+          # echo "☣️ Applying task_mmu.c Fake Patch (if applicable)"
+          # if grep -q '^#include <trace/hooks/mm.h>$' fs/proc/task_mmu.c; then
+          #  sed -i '/^#include <trace\/hooks\/mm.h>$/d' fs/proc/task_mmu.c
+          #  MM_FAKE_PATCHED=1
+          # else
+          #  echo "ℹ️ mm.h include not present in fs/proc/task_mmu.c — skipping fake patch"
+          #  MM_FAKE_PATCHED=0
+          # fi
+
+          SUSFS_KERNEL_PATCH="$PWD/susfs4ksu/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch"
+          
+          # SUSFS_KERNEL_PATCH="$PWD/50_add_susfs_in_gki-android13-5.15.patch"
+          # curl -fsSL -o "$SUSFS_KERNEL_PATCH" \
+          #  "https://raw.githubusercontent.com/nullptr-t-oss/kernel_kit/main/kernel_patches/salami-oos14/susfs/50_add_susfs_in_gki-android13-5.15.patch" \
+          #  || { echo "❌ Failed to download SUSFS patch"; exit 1; }
+
+          echo "🔧 Applying SUSFS kernel patch..."
+          if patch -p1 < "$SUSFS_KERNEL_PATCH"; then
+            echo "✅ SUSFS patch successfully applied"
           else
-            echo "::warning::ReSukiSU ref '${{ env.RESUKISU_REF }}' not found — fell back to $(git branch --show-current 2>/dev/null || echo main) @ $ACTUAL_SHA. Build continuing on the unpinned default; this may not match your SUSFS pin."
-          fi
-          cd ..
+            echo "⚠️ Patch had rejects — applying known include-only hunks manually"
 
-          CONFIG_FILE="arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
-          cat >> "$CONFIG_FILE" << 'EOF'
-          CONFIG_KSU=y
-          EOF
-
-          echo "🎉 ReSukiSU integrated!"
-
-
-      - name: "🔧 Setup SUSFS"
-        if: matrix.kernel.enable_ksu == true
-        working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
-        env:
-          SUSFS_REPO: "https://gitlab.com/simonpunk/susfs4ksu"
-          SUSFS_BRANCH: "gki-android13-5.15"
-          SUSFS_COMMIT: "7d032feca40b053f99d7bc4ebf93c91903ac5769"
-        run: |
-          set -e
-
-          echo "📦 Fetching SUSFS branch ${{ env.SUSFS_BRANCH }}..."
-          git clone --branch "${{ env.SUSFS_BRANCH }}" "${{ env.SUSFS_REPO }}" ../susfs4ksu
-          cd ../susfs4ksu
-
-          if ! git cat-file -e "${{ env.SUSFS_COMMIT }}" 2>/dev/null; then
-            echo "::error::SUSFS commit '${{ env.SUSFS_COMMIT }}' does not exist — aborting"
-            exit 1
-          fi
-          if ! git branch -r --contains "${{ env.SUSFS_COMMIT }}" | grep -q "origin/${{ env.SUSFS_BRANCH }}"; then
-            echo "::error::SUSFS commit '${{ env.SUSFS_COMMIT }}' not reachable from '${{ env.SUSFS_BRANCH }}' — aborting"
-            exit 1
-          fi
-          git checkout "${{ env.SUSFS_COMMIT }}"
-          echo "✅ SUSFS pinned to ${{ env.SUSFS_COMMIT }} on ${{ env.SUSFS_BRANCH }}"
-          cd -
-
-          # 1. Copy SUSFS core sources into the kernel tree
-          cp -r ../susfs4ksu/kernel_patches/fs/* fs/
-          cp -r ../susfs4ksu/kernel_patches/include/linux/* include/linux/
-
-          # 2. Apply the GKI-branch-specific patch, EXCLUDING drivers/kernelsu/Kconfig —
-          # ReSukiSU already natively defines KSU_SUSFS/KSU_MANUAL_HOOK as choice
-          # members; this patch's Kconfig hunk duplicates them into a second,
-          # conflicting choice group. All the C-source hook insertions
-          # (kernel/sys.c, fs/exec.c, etc.) still need to apply normally.
-          cp ../susfs4ksu/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch .
-          if ! git apply --reject --exclude='drivers/kernelsu/Kconfig' \
-               50_add_susfs_in_gki-android13-5.15.patch; then
-            echo "::warning::SUSFS core hunks failed — dumping rejected hunks below"
-            echo "===== REJECTED HUNKS START ====="
-            find . -name '*.rej' -exec echo "--- {} ---" \; -exec cat {} \;
-            echo "===== REJECTED HUNKS END ====="
-          fi
-          rm -f 50_add_susfs_in_gki-android13-5.15.patch
-
-          echo "===== HOOK PRESENCE CHECK ====="
-          for pair in "ksu_handle_setresuid:kernel/sys.c" \
-                      "ksu_handle_execveat:fs/exec.c" \
-                      "ksu_handle_faccessat:fs/open.c" \
-                      "ksu_handle_sys_read:fs/read_write.c" \
-                      "ksu_handle_stat:fs/stat.c" \
-                      "ksu_handle_sys_reboot:kernel/reboot.c" \
-                      "ksu_handle_input_handle_event:drivers/input/input.c"; do
-            hook="${pair%%:*}"
-            file="${pair##*:}"
-            if grep -q "$hook" "$file" 2>/dev/null; then
-              echo "✅ $hook found in $file"
-            else
-              echo "❌ $hook MISSING from $file"
+            if [ -f fs/namespace.c.rej ]; then
+              if ! grep -q 'CL_COPY_MNT_NS BIT(25)' fs/namespace.c; then
+                perl -0pi -e 's{(#include "internal\.h"\n)}{$1#ifdef CONFIG_KSU_SUSFS\n#include <linux/susfs_def.h>\n#endif // #ifdef CONFIG_KSU_SUSFS\n}' fs/namespace.c
+                perl -0pi -e 's{(/\* Maximum number of mounts in a mount namespace \*/\n)}{#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\nextern bool susfs_is_current_ksu_domain(void);\nextern struct static_key_true susfs_is_sdcard_android_data_not_decrypted;\n\n#define CL_COPY_MNT_NS BIT(25) /* used by copy_mnt_ns() */\n#endif // #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\n\n$1}' fs/namespace.c
+              fi
+              grep -q 'CL_COPY_MNT_NS BIT(25)' fs/namespace.c || { echo "❌ namespace.c manual inject failed"; exit 1; }
+              rm -f fs/namespace.c.rej fs/namespace.c.orig
             fi
-          done
-          echo "===== END ====="
 
-          # 3. Remove KMI protected-exports list so ReSukiSU/SUSFS symbols
-          #    survive KMI trimming
-          rm -f android/abi_gki_protected_exports_aarch64
-          rm -f android/abi_gki_protected_exports_x86_64
+            if [ -f fs/proc/task_mmu.c.rej ]; then
+              if ! grep -q 'linux/susfs_def.h' fs/proc/task_mmu.c; then
+                perl -0pi -e 's{(#include <asm/elf\.h>\n)}{#if defined(CONFIG_KSU_SUSFS_SUS_KSTAT) || defined(CONFIG_KSU_SUSFS_SUS_MAP) || defined(CONFIG_KSU_SUSFS_OPEN_REDIRECT)\n#include <linux/susfs_def.h>\n#endif\n\n$1}' fs/proc/task_mmu.c
+              fi
+              grep -q 'linux/susfs_def.h' fs/proc/task_mmu.c || { echo "❌ task_mmu.c manual inject failed"; exit 1; }
+              rm -f fs/proc/task_mmu.c.rej fs/proc/task_mmu.c.orig
+            fi
+
+            if find . -name '*.rej' ! -name 'mkcompile_h.rej' | grep -q .; then
+              echo "❌ Unexpected rejects remain"
+              find . -name '*.rej' ! -name 'mkcompile_h.rej' | while read -r r; do
+                echo "=== $r ==="; cat "$r"
+              done
+              exit 1
+            fi
+            echo "✅ SUSFS patch applied (with manual include fixups)"
+          fi
+          rm -f "$SUSFS_KERNEL_PATCH"
+
+          HIDE=$(find -L drivers/kernelsu -name selinux_hide.c 2>/dev/null | head -1)
+          if [ -n "$HIDE" ] && ! grep -q fake_state "$HIDE"; then
+            echo "🔁 New selinux_hide model: exporting helpers + fake_state -> backup_sepolicy"
+
+            # declares the helpers static; export them so the kernel side can link
+            sed -i -E 's/^static (int|void) (security_context_to_sid_with_policy|security_sid_to_context_with_policy|security_compute_av_user_with_policy)\(/\1 \2(/' "$HIDE"
+            grep -n '^[a-z].*_with_policy(struct' "$HIDE"
+            if grep -n '^static .*_with_policy(' "$HIDE"; then
+              echo "❌ helpers still static"; exit 1
+            fi
+
+            FS=security/selinux/selinuxfs.c
+            HK=security/selinux/hooks.c
+            E1='extern struct selinux_policy *backup_sepolicy;'
+            E2='extern int security_context_to_sid_with_policy(struct selinux_policy *policy, const char *scontext, u32 scontext_len, u32 *sid, u32 def_sid, gfp_t gfp_flags, u32 *orig_sid_p, int *orig_rc_p);'
+            E3='extern int security_sid_to_context_with_policy(struct selinux_policy *policy, u32 sid, char **scontext, u32 *scontext_len);'
+            E4='extern void security_compute_av_user_with_policy(struct selinux_policy *policy, u32 ssid, u32 tsid, u16 tclass, struct av_decision *avd);'
+
+            sed -i \
+              -e "s|^extern struct selinux_state fake_state;|${E1}\n${E2}\n${E3}\n${E4}|" \
+              -e 's|security_context_to_sid(&fake_state, buf, size, &sid, GFP_KERNEL)|security_context_to_sid_with_policy(backup_sepolicy, buf, size, \&sid, SECSID_NULL, GFP_KERNEL, NULL, NULL)|' \
+              -e 's|security_sid_to_context(&fake_state, sid, &canon, &len)|security_sid_to_context_with_policy(backup_sepolicy, sid, \&canon, \&len)|' \
+              -e 's|security_context_str_to_sid(&fake_state, scon, &ssid, GFP_KERNEL)|security_context_to_sid_with_policy(backup_sepolicy, scon, strlen(scon), \&ssid, SECSID_NULL, GFP_KERNEL, NULL, NULL)|' \
+              -e 's|security_context_str_to_sid(&fake_state, tcon, &tsid, GFP_KERNEL)|security_context_to_sid_with_policy(backup_sepolicy, tcon, strlen(tcon), \&tsid, SECSID_NULL, GFP_KERNEL, NULL, NULL)|' \
+              -e 's|security_compute_av_user(&fake_state, ssid, tsid, tclass, &avd)|security_compute_av_user_with_policy(backup_sepolicy, ssid, tsid, tclass, \&avd)|' \
+              "$FS"
+
+            sed -i \
+              -e "s|^extern struct selinux_state fake_state;|${E1}\n${E2}|" \
+              -e 's|security_context_to_sid(&fake_state, value, size, &tmp_sid, GFP_KERNEL)|security_context_to_sid_with_policy(backup_sepolicy, value, size, \&tmp_sid, SECSID_NULL, GFP_KERNEL, NULL, NULL)|' \
+              "$HK"
+
+            if grep -n 'fake_state' "$FS" "$HK"; then
+              echo "❌ fake_state references remain"; exit 1
+            fi
+            echo "✅ fake_state converted"
+          else
+            echo "ℹ️ Old selinux_hide model: keeping fake_state as-is"
+          fi
+
+          echo "🔧 Applying SUSFS -> KernelSU patch..."
+          KSU_PATCH="susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch"
+          
+          echo "📄 Forcing SUSFS source injection..."
+          
+          # Always replace fs/susfs.c
+          mkdir -p fs
+          cp -f susfs4ksu/kernel_patches/fs/susfs.c fs/susfs.c
+          echo "✔ Copied fs/susfs.c"
+          
+          # Always replace include/linux/susfs.h
+          mkdir -p include/linux
+          cp -f susfs4ksu/kernel_patches/include/linux/susfs.h include/linux/susfs.h
+          echo "✔ Copied include/linux/susfs.h"
+          
+          # Also install missing susfs_def.h
+          if [ -f susfs4ksu/kernel_patches/include/linux/susfs_def.h ]; then
+            cp -f susfs4ksu/kernel_patches/include/linux/susfs_def.h include/linux/susfs_def.h
+            echo "✔ Copied include/linux/susfs_def.h"
+          else
+            echo "⚠️ susfs_def.h not found in repo"
+          fi
+          
+          echo "🔍 Verifying SUSFS files..."
+          for f in fs/susfs.c include/linux/susfs.h include/linux/susfs_def.h; do
+            if [ -f "$f" ]; then echo "✔ Found: $f"; else echo "❌ Missing: $f"; fi
+          done
+          
+          # Clean up SUSFS repo (we only needed kernel patches, not KSU integration)
+          rm -rf susfs4ksu
+          
+          # Create symbolic link for drivers/kernelsu (if needed by build system)
+          if [ ! -L "drivers/kernelsu" ]; then
+            ln -sf ../KernelSU drivers/kernelsu
+            echo "✔ Created drivers/kernelsu symlink"
+          fi
+
+          echo "✅ SUSFS build wiring verified"
 
           CONFIG_FILE="arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
           cat >> "$CONFIG_FILE" << 'EOF'
           CONFIG_KSU_SUSFS=y
-          CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
           CONFIG_KSU_SUSFS_SUS_PATH=y
           CONFIG_KSU_SUSFS_SUS_MOUNT=y
-          CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y
-          CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y
           CONFIG_KSU_SUSFS_SUS_KSTAT=y
-          CONFIG_KSU_SUSFS_SUS_MAP=y
-          CONFIG_KSU_SUSFS_TRY_UMOUNT=y
-          CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y
           CONFIG_KSU_SUSFS_SPOOF_UNAME=y
           CONFIG_KSU_SUSFS_ENABLE_LOG=y
+          CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
           CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
           CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
+          CONFIG_KSU_SUSFS_SUS_MAP=y
           EOF
 
-          echo "🎉 SUSFS integrated"
+          # echo "↩️ Reverting namespace.c Fake Patch (if applicable)"
+          # if [ "$NS_FAKE_PATCHED" = "1" ] && ! grep -q 'trace/hooks/blk.h' fs/namespace.c; then
+          #  if grep -q '^#include "internal.h"$' fs/namespace.c; then
+          #    sed -i '/^#include "internal.h"$/a #include <trace/hooks/blk.h>' fs/namespace.c
+          #    echo "✔ Restored blk.h include"
+          #  else
+          #    echo "⚠️ Anchor #include \"internal.h\" not found — could not restore blk.h include, check fs/namespace.c manually"
+          #  fi
+          # else
+          #  echo "ℹ️ Skipping blk.h restore (not fake-patched or already present)"
+          # fi
 
-
-
-      - name: "🩹 Fix rejected SUSFS include hunks"
-        if: matrix.kernel.enable_ksu == true
-        working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
-        run: |
-          set -e
-
-          # Reusable fixer: $1 = target file, $2 = anchor line to insert after,
-          # $3 = path to a file containing the block to insert
-          fix_include() {
-            local target="$1"
-            local anchor="$2"
-            local block_file="$3"
-
-            if grep -q "susfs_def.h" "$target"; then
-              echo "✅ $target: SUSFS include block already present — skipping"
-              return
-            fi
-
-            echo "🩹 $target: inserting rejected SUSFS include block"
-            sed -i "/^${anchor}\$/r ${block_file}" "$target"
-
-            if grep -q "susfs_def.h" "$target"; then
-              echo "✅ $target: include block successfully inserted"
-            else
-              echo "::error::$target: insertion failed — anchor '${anchor}' not found"
-              exit 1
-            fi
-
-            rm -f "${target}.rej"
-          }
-
-          # --- fs/namespace.c ---
-          printf '%s\n' \
-            '#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT' \
-            '#include <linux/susfs_def.h>' \
-            '#endif // #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT' \
-            '' \
-            '#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT' \
-            'extern bool susfs_is_current_ksu_domain(void);' \
-            'extern struct static_key_true susfs_is_sdcard_android_data_not_decrypted;' \
-            '' \
-            '#define CL_COPY_MNT_NS BIT(25) /* used by copy_mnt_ns() */' \
-            '' \
-            '#endif // #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT' \
-            > /tmp/block_namespace.txt
-          fix_include "fs/namespace.c" '#include <linux\/mnt_idmapping.h>' /tmp/block_namespace.txt
-          rm -f /tmp/block_namespace.txt
-
-          # --- fs/proc/task_mmu.c ---
-          printf '%s\n' \
-            '#if defined(CONFIG_KSU_SUSFS_SUS_KSTAT) || defined(CONFIG_KSU_SUSFS_SUS_MAP) || defined(CONFIG_KSU_SUSFS_OPEN_REDIRECT)' \
-            '#include <linux/susfs_def.h>' \
-            '#endif // #if defined(CONFIG_KSU_SUSFS_SUS_KSTAT) || defined(CONFIG_KSU_SUSFS_SUS_MAP) || defined(CONFIG_KSU_SUSFS_OPEN_REDIRECT)' \
-            > /tmp/block_task_mmu.txt
-          fix_include "fs/proc/task_mmu.c" '#include <linux\/pkeys.h>' /tmp/block_task_mmu.txt
-          rm -f /tmp/block_task_mmu.txt
-
-          echo "===== Verification ====="
-          echo "--- fs/namespace.c ---"
-          sed -n '32,45p' fs/namespace.c
-          echo "--- fs/proc/task_mmu.c ---"
-          sed -n '20,28p' fs/proc/task_mmu.c
-
+          # echo "↩️ Reverting task_mmu.c Fake Patch (if applicable)"
+          # if [ "$MM_FAKE_PATCHED" = "1" ] && ! grep -q 'trace/hooks/mm.h' fs/proc/task_mmu.c; then
+          #  if grep -q '^#include <linux/pkeys.h>$' fs/proc/task_mmu.c; then
+          #    sed -i '/^#include <linux\/pkeys.h>$/a #include <trace/hooks/mm.h>' fs/proc/task_mmu.c
+          #    echo "✔ Restored mm.h include"
+          #  else
+          #    echo "⚠️ Anchor #include <linux/pkeys.h> not found — could not restore mm.h include, check fs/proc/task_mmu.c manually"
+          #  fi
+          # else
+          #  echo "ℹ️ Skipping mm.h restore (not fake-patched or already present)"
+          # fi
           
-
-      - name: "⚙️ Setup basic configs"
-        working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
-        run: |
-          CONFIG_FILE="./arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
-          
-          # addon configs
-          cat >> "$CONFIG_FILE" << 'EOF'
-          CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y
-          CONFIG_TCP_CONG_ADVANCED=y
-          CONFIG_TCP_CONG_BIC=n
-          CONFIG_TCP_CONG_WESTWOOD=y
-          CONFIG_TCP_CONG_HTCP=n
-          CONFIG_TCP_CONG_BBR=y
-          CONFIG_DEFAULT_WESTWOOD=y
-          CONFIG_OVERLAY_FS=y
-          CONFIG_TMPFS_XATTR=y
-          CONFIG_TMPFS_POSIX_ACL=y
-          CONFIG_KALLSYMS=y
-          EOF
-          
-          echo "✅ Basic configs added"
+          echo "🎉 KSU Config + SUSFS Integration setup complete!"
 
       - name: "📝 Append custom Makefile line"
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
@@ -348,27 +576,21 @@ jobs:
          echo 'KBUILD_CFLAGS += -Wno-implicit-function-declaration' >> Makefile
          echo "Custom Makefile line added successfully"
 
-
-      - name: "🛡️ KMI symbol export sanity check"
-        if: matrix.kernel.enable_ksu == true
-        working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
-        run: |
-          if [ -f android/abi_gki_protected_exports_aarch64 ]; then
-            echo "::error::abi_gki_protected_exports_aarch64 still present — KMI trimming may strip ReSukiSU/SUSFS symbols again (this caused your original bootloop)"
-            exit 1
-          else
-            echo "✅ KMI protected-exports list absent — symbol trimming won't strip ReSukiSU/SUSFS exports"
-          fi
-         
-    
       - name: "🔨 Build kernel"
         working-directory: ${{ env.WORK_DIR }}
         run: |
           LTO=full \
           BUILD_CONFIG=${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}/build.config.gki.aarch64 \
           build/build.sh -j$(nproc --all)
+          
+      - name: "📁 Copy Vanilla kernel image"
+        if: matrix.kernel.enable_ksu == false
+        working-directory: ${{ env.WORK_DIR }}/out/dist
+        run: |
+          cp Image "${{ env.OUTPUT_NAME }}"
 
-      - name: "📁 Copy kernel image"
+      - name: "📁 Copy KSU kernel image"
+        if: matrix.kernel.enable_ksu == true
         working-directory: ${{ env.WORK_DIR }}/out/dist
         run: |
           cp Image "${{ env.OUTPUT_NAME }}"
@@ -380,15 +602,19 @@ jobs:
           path: ${{ env.WORK_DIR }}/out/dist/${{ env.OUTPUT_NAME }}
           retention-days: 1
 
+      - name: 🔍 Check Space (Post-Build)
+        if: always() # Run even if build fails to debug space issues
+        run: |
+          echo "Final disk space status:"
+          df -h /
+
   package-kernels:
     name: "📦 Package Kernels"
     runs-on: ubuntu-latest
     needs: [build-kernels]
-    permissions:
-      contents: write
     steps:
       - name: "📥 Download kernel artifacts"
-        uses: actions/download-artifact@v4.3.0
+        uses: actions/download-artifact@v4
         with:
           path: ./artifacts/
 
@@ -397,104 +623,95 @@ jobs:
           set -e
 
           # Clone AnyKernel3
-          git clone --depth=1 https://github.com/sajids12bd/AnyKernel3 -b master AnyKernel3
+          git clone --depth=1 https://github.com/yougotme101/AnyKernel3 -b YASK AnyKernel3
 
           # Copy kernel images
           find ./artifacts -name "Image.*" -exec cp {} AnyKernel3/ \;
 
-
           # Create banner
           cat > AnyKernel3/banner << 'EOF'
           ╔═════════════════════════════════════════════════════╗
+          ║'##::::'##::'######::'########::'#######:::'######::'##:::'##:║
+          ║. ##::'##::'##... ##:... ##..::'##.... ##:'##... ##: ##::'##::║
+          ║:. ##'##::: ##:::..::::: ##:::: ##:::: ##: ##:::..:: ##:'##:::║
+          ║::. ###::::. ######::::: ##:::: ##:::: ##: ##::::::: #####::::║
+          ║:: ## ##::::..... ##:::: ##:::: ##:::: ##: ##::::::: ##. ##:::║
+          ║: ##:. ##::'##::: ##:::: ##:::: ##:::: ##: ##::: ##: ##:. ##::║
+          ║##:::. ##:. ######::::: ##::::. #######::. ######:: ##::. ##::║
+          ║..:::::..:::......::::::..::::::.......::::......:::..::::..::║
           ║                                                     ║
-          ║         _         _          ___       _            ║
-          ║        /_\  _   _| |_ ___   / __\ ___ | |_ ___      ║
-          ║       //_\\| | | | __/ _ \ /__\/// _ \| __/ __|     ║
-          ║      /  _  \ |_| | || (_) / \/  \ (_) | |_\__ \     ║
-          ║      \_/ \_/\__,_|\__\___/\_____/\___/ \__|___/     ║
+          ║                     XStock Kernel                   ║
+          ║                   by @yougotme101                   ║
           ║                                                     ║
-          ║                                                     ║
-          ║                                                     ║
-          ║               Yet Another xStock Kernel             ║
-          ║                yougotme101.belowzeroiq              ║
-          ║                                                     ║
-          ║               Powered by Github Actions             ║
+          ║              Powered by Github Actions              ║
           ║                                                     ║
           ╠═════════════════════════════════════════════════════╣
           ║                                                     ║
           ║     Features:                                       ║
           ║     • Full LTO + -O2 Optimization                   ║
-          ║     • Extra TCP Congestion (BBR, Westwood)          ║
-          ║     • AOSP clang-r547379                            ║
-          ║     • ReSuKiSU support                              ║
-          ║     • SUSFS v2.2 (for KSU builds)                   ║
-          ║     • Baseband-Guard Enable                         ║
-          ║     • Metamodule Enable                             ║
-          ║                                                     ║
-          ║     Info:                                           ║
-          ║     • Supported Android: 13-17                      ║
-          ║     • Supported Device:                             ║
-          ║         Redmi Note 12 4G/NFC                        ║
-          ║         Redmi Note 13 4G/NFC                        ║
-          ║         Redmi Pad SE                                ║
+          ║     • Extra TCP Congestion                          ║
+          ║     • AOSP clang-r614150                            ║
+          ║     • Droidspaces Support                           ║
+          ║     • Baseband-guard v1 Support                     ║
+          ║     • Vanilla & BakaSU (Multi Manager Support).     ║
+          ║     • Integrated with SUSFS (GKI A13-5.15)          ║
+          ║     • Metamodule & NoMount Support                  ║
           ║                                                     ║
           ║     Please ensure:                                  ║
           ║     • Your device is compatible                     ║
           ║     • You have a backup of your current kernel      ║
           ║                                                     ║
           ╚═════════════════════════════════════════════════════╝
-          Installing Kernel...
+          Installing XStock Kernel...
           EOF
 
-
           # Create ZIP
-          ZIP_NAME="Anykernel3_ReSukiSU-GKI_$(date +'%Y-%m-%d').zip"
+          ZIP_NAME="AK3_XStock-AIO-FULL_MULTI_$(date +'%Y-%m-%d').zip"
           cd AnyKernel3
           zip -r9 "../$ZIP_NAME" * -x .git/*
           cd ..
-
+          
           echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
           echo "✅ Package created: $ZIP_NAME"
 
       - name: "⬆️ Upload to GitHub Release"
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v1
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
         with:
           files: ${{ env.ZIP_NAME }}
-          tag_name: "YASK-NEXT"
+          tag_name: "XStock-MULTI"
 
-      - name: "📱 Send Telegram Notification"
+      - name: "🎉 Send Telegram success notification"
         run: |
-          RELEASE_URL="https://github.com/${{ github.repository }}/releases/tag/YASK-NEXT"
-          BANNER_URL="https://raw.githubusercontent.com/topnotchfreaks/kernel_msm-5.15/builder/assets/yask.png"
-
+          RELEASE_URL="https://github.com/${{ github.repository }}/releases/tag/XStock-MULTI"
+          BANNER_URL="https://raw.githubusercontent.com/yougotme101/kernel_msm-5.15/builder/assets/xeniel.png"
+          
           if [[ "${{ job.status }}" == "success" ]]; then
-            MESSAGE="✅ *YASK Kernel Released*
+            MESSAGE="✅ *XStock Kernel Released*
 
           📦 *Build Information:*
           • Kernel: \`Linux 5.15\`
-          • Android: \`13-16\`
+          • Android: \`13-17\`
           • Base: \`GKI & CLO\`
-          • KSU: \`ReSukiSU\`
+          • KSU: \`BakaSU\`
           • SUSFS: \`Enabled (GKI A13-5.15)\`
           • LTO: \`Full\`
           • Optimization: \`-O2\`
           • BBG: \`Enabled\`
+          • Droidspaces: \`Enabled\`
+          • NoMount: \`Enabled\`
 
           📱 *Supported Devices:*
           • Redmi Note 12 4G/NFC
           • Redmi Note 13 4G/NFC
           • Redmi Pad SE
+          • Redmi 15/Poco M7 (untested)
 
           📱 *Supported Manager:*
-          • KSU by tiann
-          • KSU by sidex15
-          • Wild-KSU
-          • KernelSU-Next
-          • Rissu-KSU
+          • KSU by tian
           • KowSU
-          • ReSukiSU
+          • BakaSU (Main Root Manager)
 
           🕐 *Build Date:* $(date '+%Y-%m-%d %H:%M:%S UTC')
           📦 *Package:* \`${{ env.ZIP_NAME }}\`
@@ -502,34 +719,36 @@ jobs:
           ⬇️ [Download Here]($RELEASE_URL)"
 
             curl -s -X POST \
-              -d chat_id=${{ secrets.TELEGRAM_CHANNEL_ID }} \
+              -d chat_id=${{ secrets.TELEGRAM_USER_ID }} \
               -d photo="${BANNER_URL}" \
               --data-urlencode "caption=${MESSAGE}" \
               -d parse_mode="Markdown" \
               -d disable_web_page_preview="false" \
-              "https://api.telegram.org/bot${{ secrets.TELEGRAM_YASK_BOT_TOKEN }}/sendPhoto"
+              "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendPhoto"
 
           else
-            FAILURE_MSG="❌ *YASK Kernel Build Failed*
-
+            FAILURE_MSG="❌ *XStock Kernel Build Failed*
+            
           📦 *Build Information:*
           • Kernel: \`Linux 5.15\`
-          • Android: \`13-16\`
+          • Android: \`13-17\`
           • Base: \`GKI & CLO\`
-          • KSU: \`ReSukiSU\`
+          • KSU: \`BakaSU\`
           • SUSFS: \`Enabled (GKI A13-5.15)\`
           • LTO: \`Full\`
           • Optimization: \`-O2\`
           • BBG: \`Enabled\`
-
+          • Droidspaces: \`Enabled\`
+          • NoMount: \`Enabled\`
+          
           🕐 *Failed at:* $(date '+%Y-%m-%d %H:%M:%S UTC')
 
           🔍 Check the [workflow logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details."
-
+           
             curl -s -X POST \
-              -d chat_id=${{ secrets.TELEGRAM_CHANNEL_ID }} \
+              -d chat_id=${{ secrets.TELEGRAM_USER_ID }} \
               -d photo="${BANNER_URL}" \
               --data-urlencode "caption=${FAILURE_MSG}" \
               -d parse_mode="Markdown" \
-              "https://api.telegram.org/bot${{ secrets.TELEGRAM_YASK_BOT_TOKEN }}/sendPhoto"
+              "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendPhoto"
           fi
