@@ -220,6 +220,10 @@ jobs:
           echo "CONFIG_CRYPTO_LZ4=y" >> "$CONFIG_FILE"
           echo "CONFIG_KERNEL_LZ4=y" >> "$CONFIG_FILE"
           echo "ZRAM_DEF_COMP_LZ4=y" >> "$CONFIG_FILE"
+          
+          # WireGuard VPN support
+          echo "CONFIG_WIREGUARD=y" >> "$CONFIG_FILE"
+          echo "CONFIG_NET_UDP_TUNNEL=y" >> "$CONFIG_FILE"
 
       - name: '⚙️ Inject Reflex Governor'
         shell: bash
