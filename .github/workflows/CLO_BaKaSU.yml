@@ -357,7 +357,7 @@ jobs:
           rm -rf ./KernelSU ./drivers/kernelsu
 
           echo "📦 Installing KSU..."
-          curl -LSs "https://raw.githubusercontent.com/Baka-SU/BakaSU/sync-up/kernel/setup.sh" | bash -s -- sync-up
+          curl -LSs "https://raw.githubusercontent.com/Baka-SU/BakaSU/main/kernel/setup.sh" | bash -s
 
           
           echo "✔ KSU installed successfully"
