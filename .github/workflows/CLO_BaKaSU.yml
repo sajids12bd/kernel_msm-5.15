@@ -425,6 +425,22 @@ jobs:
           fi
           rm -f "$SUSFS_KERNEL_PATCH"
 
+
+          set -x
+          echo "===== BAKASU DEBUG ====="
+
+          HIDE=$(find -L drivers/kernelsu -name selinux_hide.c 2>/dev/null | head -1)
+
+          echo "HIDE file: ${HIDE:-NOT FOUND}"
+
+          if [ -n "$HIDE" ]; then
+              echo "===== SELINUX HIDE CONTENT ====="
+              grep -nE 'fake_state|_with_policy|static.*security_' "$HIDE" || true
+          fi
+          
+          echo "===== END DEBUG ====="
+
+          
           HIDE=$(find -L drivers/kernelsu -name selinux_hide.c 2>/dev/null | head -1)
           if [ -n "$HIDE" ] && ! grep -q fake_state "$HIDE"; then
             echo "🔁 New selinux_hide model: exporting helpers + fake_state -> backup_sepolicy"
