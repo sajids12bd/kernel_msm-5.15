@@ -429,8 +429,9 @@ jobs:
           set -x
           echo "===== BAKASU DEBUG ====="
 
-          HIDE=$(find -L drivers/kernelsu -name selinux_hide.c 2>/dev/null | head -1)
-
+          # HIDE=$(find -L drivers/kernelsu -name selinux_hide.c 2>/dev/null | head -1)
+          HIDE="drivers/kernelsu/feature/selinux_hide/selinux_hide_auto.c"
+          
           echo "HIDE file: ${HIDE:-NOT FOUND}"
 
           if [ -n "$HIDE" ]; then
