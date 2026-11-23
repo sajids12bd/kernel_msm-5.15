@@ -442,8 +442,9 @@ jobs:
           echo "===== END DEBUG ====="
 
           
-          HIDE=$(find -L drivers/kernelsu -name selinux_hide.c 2>/dev/null | head -1)
+          # HIDE=$(find -L drivers/kernelsu -name selinux_hide.c 2>/dev/null | head -1)
 
+          HIDE="drivers/kernelsu/feature/selinux_hide/selinux_hide_auto.c"
           
           echo "===== SELINUX_HIDE.C FULL CONTENT ====="
           echo "File: $HIDE"
